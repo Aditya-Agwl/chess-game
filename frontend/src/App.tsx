@@ -5,7 +5,7 @@ import type { Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import "./App.css";
 
-const API_BASE = "https://chess.agarwaladi.co.in";
+const API_BASE = "https://chess-backend.agarwaladi.co.in";
 type PlayerColor = "white" | "black";
 type DifficultyLevel = "easy" | "medium" | "hard";
 
