@@ -1,0 +1,372 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+:root {
+  --bg: #f5f1e8;
+  --bg-2: #ece4d6;
+  --ink: #1d1a17;
+  --muted: #5d564d;
+  --panel: #fffdf7;
+  --line: #d9ccb4;
+  --accent: #ad2e24;
+  --accent-2: #d88f26;
+  --ok: #2f7d32;
+  --error: #8f1d1d;
+  --shadow: 0 18px 40px rgba(52, 33, 10, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 20% 10%, #fdf8ed 0%, transparent 38%),
+    radial-gradient(circle at 80% 18%, #ffe9cf 0%, transparent 26%),
+    linear-gradient(180deg, var(--bg), var(--bg-2));
+  min-height: 100vh;
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.grain {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0.13;
+  background-image: radial-gradient(#7d6f5b 0.55px, transparent 0.55px);
+  background-size: 4px 4px;
+}
+
+.board-page {
+  position: relative;
+  z-index: 1;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 34px 20px 28px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.topbar p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.setup-card {
+  margin-top: 26px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: linear-gradient(145deg, #fffaf0, #fffef9);
+  box-shadow: var(--shadow);
+  padding: 26px;
+  animation: rise 0.45s ease;
+}
+
+.setup-card h2 {
+  margin: 0;
+  font-size: 1.45rem;
+}
+
+.setup-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.setup-subtitle {
+  margin: 16px 0 8px;
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5f5445;
+}
+
+.selection-hint {
+  margin-top: 8px;
+  color: #6a5f51;
+  font-size: 0.85rem;
+}
+
+.setup-actions {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 14px;
+  padding: 13px 16px;
+  font: 600 0.95rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(20, 14, 5, 0.16);
+}
+
+.btn.is-selected {
+  box-shadow: 0 0 0 3px rgba(216, 143, 38, 0.45);
+}
+
+.btn-light {
+  background: #f3dfb8;
+  color: #2e2416;
+}
+
+.btn-dark {
+  background: #2f2518;
+  color: #fff6e7;
+}
+
+.difficulty-actions {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.btn-difficulty {
+  background: #efe4d0;
+  color: #342a1d;
+  border: 1px solid #d9c7aa;
+}
+
+.btn-start {
+  margin-top: 16px;
+  width: 100%;
+  background: linear-gradient(120deg, #6e1e1a, #c56f16);
+  color: #fff;
+}
+
+.btn-reset {
+  margin-top: 14px;
+  width: 100%;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  color: #fff;
+}
+
+.game-grid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 18px;
+  align-items: start;
+  animation: rise 0.45s ease;
+}
+
+.board-wrap {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 251, 242, 0.9);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.board-wrap > div {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 1.12rem;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed #e7d9c3;
+  gap: 10px;
+}
+
+.row span {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.row strong {
+  text-align: right;
+  font-size: 0.95rem;
+}
+
+.fen-block {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.fen-block span {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fen-block code {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: #31261b;
+  background: #f8efe0;
+  border: 1px solid #e7d6bc;
+  border-radius: 10px;
+  padding: 10px;
+  word-break: break-word;
+}
+
+.error-box {
+  margin-top: 12px;
+  background: #ffe5e5;
+  color: var(--error);
+  border: 1px solid #f7b4b4;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 0.88rem;
+}
+
+.hint-line {
+  margin-top: 14px;
+  color: #544c42;
+  font-size: 0.9rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(17, 12, 8, 0.52);
+  backdrop-filter: blur(4px);
+  z-index: 30;
+  padding: 16px;
+}
+
+.result-modal {
+  width: min(420px, 100%);
+  border-radius: 20px;
+  border: 1px solid #ecdac1;
+  background: #fff8ec;
+  box-shadow: 0 24px 60px rgba(17, 11, 5, 0.35);
+  padding: 20px;
+  animation: rise 0.2s ease;
+}
+
+.result-modal h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  text-transform: uppercase;
+}
+
+.result-modal p {
+  margin: 10px 0 0;
+  color: #534a40;
+}
+
+.modal-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
+}
+
+.modal-actions .btn {
+  width: 100%;
+  margin-top: 0;
+}
+
+.corner-orb {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, rgba(216, 143, 38, 0.45), rgba(216, 143, 38, 0));
+  right: -90px;
+  top: -80px;
+  filter: blur(1px);
+}
+
+.orb-two {
+  width: 220px;
+  height: 220px;
+  left: -80px;
+  top: auto;
+  bottom: -80px;
+  background: radial-gradient(circle at 30% 30%, rgba(173, 46, 36, 0.32), rgba(173, 46, 36, 0));
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 960px) {
+  .game-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    width: 100%;
+  }
+}
+
+@media (max-width: 680px) {
+  .board-page {
+    padding: 20px 14px 18px;
+  }
+
+  .setup-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .difficulty-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .board-wrap {
+    padding: 10px;
+  }
+
+  .topbar p,
+  .hint-line,
+  .row span,
+  .row strong {
+    font-size: 0.88rem;
+  }
+}
