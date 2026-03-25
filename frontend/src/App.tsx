@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Chess } from "chess.js";
 import type { CSSProperties } from "react";
 import type { Square } from "chess.js";
@@ -11,6 +11,7 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "https://chess-backend.agarwal
 const TOKEN_KEY = "chess_auth_token";
 const USER_KEY = "chess_auth_user";
 
+type PageView = "play" | "history";
 type PlayerColor = "white" | "black";
 type DifficultyLevel = "easy" | "medium" | "hard";
 type GameResult = "win" | "loss" | "draw" | "aborted";
@@ -33,6 +34,9 @@ type SavedGame = {
   result: GameResult;
   difficulty: DifficultyLevel;
   player_color: PlayerColor;
+  move_history: string[];
+  final_fen: string;
+  pgn?: string;
   finished_at?: string;
 };
 
@@ -55,10 +59,17 @@ export default function App() {
       return null;
     }
   });
+  const [currentPage, setCurrentPage] = useState<PageView>("play");
   const [authLoading, setAuthLoading] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState("");
-  const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [gamesLoading, setGamesLoading] = useState(false);
+  const [gamesError, setGamesError] = useState("");
+  const [recentGames, setRecentGames] = useState<SavedGame[]>([]);
+  const [selectedGameId, setSelectedGameId] = useState<string>("");
+  const [filterResult, setFilterResult] = useState<"all" | GameResult>("all");
+  const [filterDifficulty, setFilterDifficulty] = useState<"all" | DifficultyLevel>("all");
+  const [filterColor, setFilterColor] = useState<"all" | PlayerColor>("all");
+  const [searchText, setSearchText] = useState("");
 
   const [game, setGame] = useState(new Chess());
   const [gameStarted, setGameStarted] = useState(false);
@@ -153,26 +164,61 @@ export default function App() {
     return "aborted";
   }
 
-  async function fetchGames(token: string) {
-    setHistoryLoading(true);
-    setHistoryError("");
+  async function fetchRecentGames() {
+    if (!authToken) return;
+    setGamesLoading(true);
+    setGamesError("");
     try {
-      const res = await fetch(API_BASE + "/games?limit=10", {
+      const res = await fetch(API_BASE + "/games?limit=100", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${authToken}`,
         },
       });
 
       const data: { games?: SavedGame[]; detail?: string } = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || "Could not fetch games");
+        throw new Error(data.detail || "Could not fetch recent games");
       }
-      setSavedGames(data.games ?? []);
+
+      const list = data.games ?? [];
+      setRecentGames(list);
+      setSelectedGameId((prev) => prev || (list[0]?.id ?? ""));
     } catch (e: unknown) {
-      setHistoryError(e instanceof Error ? e.message : "Could not fetch games");
+      setGamesError(e instanceof Error ? e.message : "Could not fetch recent games");
     } finally {
-      setHistoryLoading(false);
+      setGamesLoading(false);
     }
+  }
+
+  function openRecentGamesPage() {
+    setShowUserMenu(false);
+    setCurrentPage("history");
+    void fetchRecentGames();
+  }
+
+  function resultLabel(result: GameResult): string {
+    if (result === "win") return "Win";
+    if (result === "loss") return "Loss";
+    if (result === "draw") return "Draw";
+    return "Aborted";
+  }
+
+  function formatDate(value?: string): string {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString();
+  }
+
+  function movePairs(moves: string[]): string[] {
+    const lines: string[] = [];
+    for (let i = 0; i < moves.length; i += 2) {
+      const moveNumber = Math.floor(i / 2) + 1;
+      const whiteMove = moves[i] ?? "";
+      const blackMove = moves[i + 1] ?? "";
+      lines.push(`${moveNumber}. ${whiteMove}${blackMove ? ` ${blackMove}` : ""}`.trim());
+    }
+    return lines;
   }
 
   async function saveGameIfNeeded(g: Chess) {
@@ -202,7 +248,6 @@ export default function App() {
         throw new Error(data.detail || "Could not save game");
       }
       setGameSaved(true);
-      void fetchGames(authToken);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not save game");
     }
@@ -237,7 +282,6 @@ export default function App() {
       setUser(data.user);
       localStorage.setItem(TOKEN_KEY, data.access_token);
       localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-      void fetchGames(data.access_token);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not sign in");
     } finally {
@@ -249,7 +293,11 @@ export default function App() {
     googleLogout();
     setAuthToken("");
     setUser(null);
-    setSavedGames([]);
+    setShowUserMenu(false);
+    setCurrentPage("play");
+    setRecentGames([]);
+    setSelectedGameId("");
+    setGamesError("");
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
   }
@@ -426,12 +474,30 @@ export default function App() {
     setGameOverModal({ visible: false, title: "", message: "" });
   }
 
-  useEffect(() => {
-    if (!authToken) return;
-    if (savedGames.length > 0) return;
-    if (historyLoading) return;
-    void fetchGames(authToken);
-  }, [authToken, savedGames.length, historyLoading]);
+  const filteredGames = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    return recentGames.filter((g) => {
+      if (filterResult !== "all" && g.result !== filterResult) return false;
+      if (filterDifficulty !== "all" && g.difficulty !== filterDifficulty) return false;
+      if (filterColor !== "all" && g.player_color !== filterColor) return false;
+      if (!query) return true;
+
+      const dateText = formatDate(g.finished_at).toLowerCase();
+      const pgnText = (g.pgn ?? "").toLowerCase();
+      return (
+        dateText.includes(query)
+        || pgnText.includes(query)
+        || g.result.includes(query)
+        || g.difficulty.includes(query)
+        || g.player_color.includes(query)
+      );
+    });
+  }, [recentGames, filterResult, filterDifficulty, filterColor, searchText]);
+
+  const selectedGame = useMemo(
+    () => filteredGames.find((g) => g.id === selectedGameId) ?? filteredGames[0] ?? null,
+    [filteredGames, selectedGameId],
+  );
 
   return (
     <div className="app-shell">
@@ -439,15 +505,34 @@ export default function App() {
 
       <main className="board-page">
         <header className="topbar">
-          <h1>Play vs Computer</h1>
-          <p>Choose your side, then challenge Stockfish in real time.</p>
-          <div style={{ marginTop: "10px" }}>
+          <div>
+            <h1>Play vs Computer</h1>
+            <p>Choose your side, then challenge Stockfish in real time.</p>
+          </div>
+          <div className="auth-controls">
             {user ? (
-              <div>
-                <strong>Signed in as {user.name}</strong>
-                <div style={{ marginTop: "8px" }}>
-                  <button className="btn btn-light" onClick={handleLogout}>Sign Out</button>
-                </div>
+              <div className="user-chip-wrap">
+                <button
+                  className="user-chip"
+                  title={user.name}
+                  onClick={() => setShowUserMenu((prev) => !prev)}
+                  aria-label="User menu"
+                >
+                  {user.picture ? (
+                    <img src={user.picture} alt="User" />
+                  ) : (
+                    user.name.slice(0, 1).toUpperCase()
+                  )}
+                </button>
+                {showUserMenu && (
+                  <div className="user-menu">
+                    <button className="user-menu-item" onClick={openRecentGamesPage}>Recent Games</button>
+                    <button className="user-menu-item" onClick={() => { setShowUserMenu(false); setCurrentPage("play"); }}>
+                      Back To Play
+                    </button>
+                    <button className="btn btn-light" onClick={handleLogout}>Sign Out</button>
+                  </div>
+                )}
               </div>
             ) : (
               <div>
@@ -455,13 +540,129 @@ export default function App() {
                   onSuccess={handleGoogleSuccess}
                   onError={() => setError("Google sign-in failed")}
                 />
-                {authLoading && <p>Signing in...</p>}
+                {authLoading && <p className="auth-loading">Signing in...</p>}
               </div>
             )}
           </div>
         </header>
 
-        {isSetup ? (
+        {currentPage === "history" ? (
+          <section className="history-page">
+            <div className="history-toolbar">
+              <h2>Recent Games</h2>
+              <div className="history-actions">
+                <button className="btn btn-light" onClick={() => void fetchRecentGames()} disabled={gamesLoading}>
+                  {gamesLoading ? "Refreshing..." : "Refresh"}
+                </button>
+                <button className="btn btn-dark" onClick={() => setCurrentPage("play")}>Back To Play</button>
+              </div>
+            </div>
+
+            <div className="history-filters">
+              <label>
+                Result
+                <select value={filterResult} onChange={(e) => setFilterResult(e.target.value as "all" | GameResult)}>
+                  <option value="all">All</option>
+                  <option value="win">Win</option>
+                  <option value="loss">Loss</option>
+                  <option value="draw">Draw</option>
+                  <option value="aborted">Aborted</option>
+                </select>
+              </label>
+              <label>
+                Difficulty
+                <select
+                  value={filterDifficulty}
+                  onChange={(e) => setFilterDifficulty(e.target.value as "all" | DifficultyLevel)}
+                >
+                  <option value="all">All</option>
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </label>
+              <label>
+                Side
+                <select value={filterColor} onChange={(e) => setFilterColor(e.target.value as "all" | PlayerColor)}>
+                  <option value="all">All</option>
+                  <option value="white">White</option>
+                  <option value="black">Black</option>
+                </select>
+              </label>
+              <label className="search-field">
+                Search
+                <input
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="Result, date, difficulty, side..."
+                />
+              </label>
+            </div>
+
+            {gamesError && <div className="error-box">{gamesError}</div>}
+
+            <div className="history-layout">
+              <div className="history-list-panel">
+                {gamesLoading ? (
+                  <p className="history-empty">Loading games...</p>
+                ) : filteredGames.length === 0 ? (
+                  <p className="history-empty">No games match your filters yet.</p>
+                ) : (
+                  <div className="history-list">
+                    {filteredGames.map((g) => (
+                      <button
+                        className={`history-card ${selectedGame?.id === g.id ? "is-active" : ""}`}
+                        key={g.id}
+                        onClick={() => setSelectedGameId(g.id)}
+                      >
+                        <div className="history-topline">
+                          <span className={`result-pill result-${g.result}`}>{resultLabel(g.result)}</span>
+                          <span>{formatDate(g.finished_at)}</span>
+                        </div>
+                        <div className="history-meta">
+                          <span>Difficulty: <strong>{g.difficulty[0].toUpperCase() + g.difficulty.slice(1)}</strong></span>
+                          <span>Side: <strong>{g.player_color === "white" ? "White" : "Black"}</strong></span>
+                          <span>Moves: <strong>{g.move_history?.length ?? 0}</strong></span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <aside className="history-detail-panel">
+                {selectedGame ? (
+                  <>
+                    <h3>Move Sequence</h3>
+                    <div className="history-summary">
+                      <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
+                      <span>{formatDate(selectedGame.finished_at)}</span>
+                    </div>
+                    <div className="move-lines">
+                      {movePairs(selectedGame.move_history ?? []).map((line, idx) => (
+                        <div className="move-line" key={`${selectedGame.id}-${idx}`}>{line}</div>
+                      ))}
+                    </div>
+                    {selectedGame.pgn && (
+                      <div className="fen-block">
+                        <span>PGN</span>
+                        <code>{selectedGame.pgn}</code>
+                      </div>
+                    )}
+                    {selectedGame.final_fen && (
+                      <div className="fen-block">
+                        <span>Final FEN</span>
+                        <code>{selectedGame.final_fen}</code>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="history-empty">Select a game to inspect moves.</p>
+                )}
+              </aside>
+            </div>
+          </section>
+        ) : isSetup ? (
           <section className="setup-card">
             <h2>Select Side And Difficulty</h2>
             <p>Pick your color and challenge level before starting.</p>
@@ -563,26 +764,6 @@ export default function App() {
               </div>
 
               {error && <div className="error-box">{error}</div>}
-              {historyError && <div className="error-box">{historyError}</div>}
-
-              {user && (
-                <div className="fen-block">
-                  <span>Recent Games</span>
-                  {historyLoading ? (
-                    <p>Loading history...</p>
-                  ) : savedGames.length === 0 ? (
-                    <p>No saved games yet.</p>
-                  ) : (
-                    <ul>
-                      {savedGames.map((g) => (
-                        <li key={g.id}>
-                          {g.result.toUpperCase()} | {g.difficulty} | {g.player_color} | {g.finished_at ?? "-"}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
 
               <button className="btn btn-reset" onClick={resetBoard}>
                 New Game

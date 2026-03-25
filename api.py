@@ -62,7 +62,7 @@ DIFFICULTY_PROFILES = {
     "easy": {
         "time": 0.05,
         "skill": 2,
-        "elo": 1320,
+        "elo": 1400,
     },
     "medium": {
         "time": 0.12,
