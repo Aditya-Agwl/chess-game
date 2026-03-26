@@ -57,6 +57,11 @@ type ClockComputationOptions = {
   isLive?: boolean;
 };
 
+type EngineMoveClockContext = {
+  base: ClockState;
+  turnStartedAt: number;
+};
+
 const TIME_CONTROL_PRESETS: Record<TimeControl, TimeControlPreset> = {
   "3+2": { label: "3 min + 2 sec", baseSeconds: 180, incrementSeconds: 2 },
   "5+0": { label: "5 min", baseSeconds: 300, incrementSeconds: 0 },
@@ -476,7 +481,7 @@ function AppInner() {
   async function requestEngineMove(
     currentFen: string,
     historyBeforeMove: string[],
-    clockContext?: { base: ClockState; turnStartedAt: number },
+    clockContext: EngineMoveClockContext,
   ) {
     if (!difficulty) {
       setError("Difficulty is not selected.");
@@ -521,9 +526,9 @@ function AppInner() {
       const currentPosition = new Chess(currentFen);
       const engineSide = currentPosition.turn();
       const settled = settleMoverClock(engineSide, moveNow, {
-        base: clockContext?.base,
+        base: clockContext.base,
         turn: engineSide,
-        turnStartedAt: clockContext?.turnStartedAt,
+        turnStartedAt: clockContext.turnStartedAt,
         isLive: true,
       });
       if (settled.timedOut) {
@@ -683,7 +688,13 @@ function AppInner() {
       return true;
     }
 
-    void requestEngineMove(next.fen(), nextMoveHistory);
+    void requestEngineMove(next.fen(), nextMoveHistory, {
+      base: {
+        white: settled.white,
+        black: settled.black,
+      },
+      turnStartedAt: moveNow,
+    });
     return true;
   }
 
@@ -722,7 +733,13 @@ function AppInner() {
     }
 
     if (restored.turn() !== playerCode) {
-      void requestEngineMove(restored.fen(), targetSnapshot.moveHistory);
+      void requestEngineMove(restored.fen(), targetSnapshot.moveHistory, {
+        base: {
+          white: targetSnapshot.whiteTimeMs,
+          black: targetSnapshot.blackTimeMs,
+        },
+        turnStartedAt: targetSnapshot.activeTurnStartedAt,
+      });
     }
   }
 
