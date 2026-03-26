@@ -1,54 +1,53 @@
-import { useMemo, useState } from "react";
-import { Chess } from "chess.js";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { Chess } from "chess.js";
 import type { Square } from "chess.js";
-import { GoogleLogin, googleLogout } from "@react-oauth/google";
+import { googleLogout } from "@react-oauth/google";
 import type { CredentialResponse } from "@react-oauth/google";
-import { Chessboard } from "react-chessboard";
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import AppHeader from "./components/AppHeader";
+import AuthModal from "./components/modals/AuthModal";
+import GameOverModal from "./components/modals/GameOverModal";
+import HistoryPage from "./components/pages/HistoryPage";
+import HomePage from "./components/pages/HomePage";
+import MatchPage from "./components/pages/MatchPage";
+import PlaySetupPage from "./components/pages/PlaySetupPage";
+import type {
+  AuthUser,
+  DifficultyLevel,
+  GameOverModalState,
+  GameResult,
+  PlayerColor,
+  SavedGame,
+} from "./types";
+import { formatDate, movePairs, resultLabel, toLabel } from "./utils/gameFormat";
 import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "https://chess-backend.agarwaladi.co.in";
 const TOKEN_KEY = "chess_auth_token";
 const USER_KEY = "chess_auth_user";
 
-type PageView = "play" | "history";
-type PlayerColor = "white" | "black";
-type DifficultyLevel = "easy" | "medium" | "hard";
-type GameResult = "win" | "loss" | "draw" | "aborted";
-
-type GameOverModalState = {
-  visible: boolean;
-  title: string;
-  message: string;
-};
-
-type AuthUser = {
-  id: string;
-  email: string;
-  name: string;
-  picture?: string | null;
-};
-
-type SavedGame = {
-  id: string;
-  result: GameResult;
-  difficulty: DifficultyLevel;
-  player_color: PlayerColor;
-  move_history: string[];
-  final_fen: string;
-  pgn?: string;
-  finished_at?: string;
-};
-
-const highlightBase: CSSProperties = {
-  boxShadow: "inset 0 0 0 2px rgba(216, 143, 38, 0.9)",
-};
-
 const sourceSquareStyle: CSSProperties = {
-  boxShadow: "inset 0 0 0 3px rgba(173, 46, 36, 0.92)",
+  boxShadow: "inset 0 0 0 3px rgba(186, 123, 20, 0.96)",
 };
 
-export default function App() {
+const availableMoveStyle: CSSProperties = {
+  background: "radial-gradient(circle, rgba(45, 120, 83, 0.45) 0%, rgba(45, 120, 83, 0.08) 55%, transparent 56%)",
+};
+
+const engineMoveStyle: CSSProperties = {
+  boxShadow: "inset 0 0 0 3px rgba(31, 115, 183, 0.82)",
+};
+
+const engineTargetStyle: CSSProperties = {
+  boxShadow: "inset 0 0 0 3px rgba(31, 115, 183, 0.82)",
+  background: "radial-gradient(circle, rgba(31, 115, 183, 0.3) 0%, rgba(31, 115, 183, 0.08) 55%, transparent 56%)",
+};
+
+function AppInner() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [authToken, setAuthToken] = useState<string>(() => localStorage.getItem(TOKEN_KEY) ?? "");
   const [user, setUser] = useState<AuthUser | null>(() => {
     const raw = localStorage.getItem(USER_KEY);
@@ -59,9 +58,10 @@ export default function App() {
       return null;
     }
   });
-  const [currentPage, setCurrentPage] = useState<PageView>("play");
+
   const [authLoading, setAuthLoading] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
   const [gamesLoading, setGamesLoading] = useState(false);
   const [gamesError, setGamesError] = useState("");
   const [recentGames, setRecentGames] = useState<SavedGame[]>([]);
@@ -78,9 +78,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [bestMove, setBestMove] = useState("");
-  const [status, setStatus] = useState("Choose a side to begin.");
-  const [hoverSquare, setHoverSquare] = useState<Square | null>(null);
-  const [hoverTargets, setHoverTargets] = useState<Square[]>([]);
+  const [status, setStatus] = useState("Pick a mode to begin.");
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const [selectedTargets, setSelectedTargets] = useState<Square[]>([]);
+  const [lastEngineMove, setLastEngineMove] = useState<{ from: Square; to: Square } | null>(null);
   const [gameOverModal, setGameOverModal] = useState<GameOverModalState>({
     visible: false,
     title: "",
@@ -95,23 +96,51 @@ export default function App() {
   const playerTurn =
     !isSetup && ((game.turn() === "w" && playerColor === "white") || (game.turn() === "b" && playerColor === "black"));
 
+  const needsAuth = !authToken || !user;
+
   const squareStyles = useMemo<Record<string, CSSProperties>>(() => {
     const styles: Record<string, CSSProperties> = {};
 
-    for (const target of hoverTargets) {
-      styles[target] = highlightBase;
+    for (const target of selectedTargets) {
+      styles[target] = availableMoveStyle;
     }
 
-    if (hoverSquare) {
-      styles[hoverSquare] = sourceSquareStyle;
+    if (selectedSquare) {
+      styles[selectedSquare] = sourceSquareStyle;
+    }
+
+    if (lastEngineMove) {
+      styles[lastEngineMove.from] = {
+        ...(styles[lastEngineMove.from] ?? {}),
+        ...engineMoveStyle,
+      };
+      styles[lastEngineMove.to] = {
+        ...(styles[lastEngineMove.to] ?? {}),
+        ...engineTargetStyle,
+      };
     }
 
     return styles;
-  }, [hoverSquare, hoverTargets]);
+  }, [selectedSquare, selectedTargets, lastEngineMove]);
 
-  function clearHoverHints() {
-    setHoverSquare(null);
-    setHoverTargets([]);
+  function clearSelection() {
+    setSelectedSquare(null);
+    setSelectedTargets([]);
+  }
+
+  function toPlayerCode(side: PlayerColor): "w" | "b" {
+    return side === "white" ? "w" : "b";
+  }
+
+  function canControlPiece(square: Square): boolean {
+    if (!playerColor) return false;
+    const piece = game.get(square);
+    if (!piece) return false;
+    return piece.color === toPlayerCode(playerColor);
+  }
+
+  function legalTargetsFor(square: Square): Square[] {
+    return game.moves({ square, verbose: true }).map((move) => move.to as Square);
   }
 
   function showGameOverModal(g: Chess) {
@@ -166,6 +195,7 @@ export default function App() {
 
   async function fetchRecentGames() {
     if (!authToken) return;
+
     setGamesLoading(true);
     setGamesError("");
     try {
@@ -192,33 +222,7 @@ export default function App() {
 
   function openRecentGamesPage() {
     setShowUserMenu(false);
-    setCurrentPage("history");
-    void fetchRecentGames();
-  }
-
-  function resultLabel(result: GameResult): string {
-    if (result === "win") return "Win";
-    if (result === "loss") return "Loss";
-    if (result === "draw") return "Draw";
-    return "Aborted";
-  }
-
-  function formatDate(value?: string): string {
-    if (!value) return "-";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "-";
-    return date.toLocaleString();
-  }
-
-  function movePairs(moves: string[]): string[] {
-    const lines: string[] = [];
-    for (let i = 0; i < moves.length; i += 2) {
-      const moveNumber = Math.floor(i / 2) + 1;
-      const whiteMove = moves[i] ?? "";
-      const blackMove = moves[i + 1] ?? "";
-      lines.push(`${moveNumber}. ${whiteMove}${blackMove ? ` ${blackMove}` : ""}`.trim());
-    }
-    return lines;
+    navigate("/history");
   }
 
   async function saveGameIfNeeded(g: Chess) {
@@ -282,6 +286,10 @@ export default function App() {
       setUser(data.user);
       localStorage.setItem(TOKEN_KEY, data.access_token);
       localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+
+      if (location.pathname === "/") {
+        setStatus("Pick a mode to begin.");
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not sign in");
     } finally {
@@ -294,7 +302,7 @@ export default function App() {
     setAuthToken("");
     setUser(null);
     setShowUserMenu(false);
-    setCurrentPage("play");
+    navigate("/");
     setRecentGames([]);
     setSelectedGameId("");
     setGamesError("");
@@ -312,7 +320,7 @@ export default function App() {
     setError("");
     setBestMove("");
     setStatus("Computer is thinking...");
-    clearHoverHints();
+    clearSelection();
 
     try {
       const res = await fetch(API_BASE + "/best-move", {
@@ -349,6 +357,10 @@ export default function App() {
       setMoveHistory((prev) => [...prev, applied.san]);
       setBestMove(move);
       setGame(next);
+      setLastEngineMove({
+        from: applied.from as Square,
+        to: applied.to as Square,
+      });
 
       if (next.isGameOver()) {
         setStatus(gameOverMessage(next));
@@ -379,8 +391,10 @@ export default function App() {
     setGameSaved(false);
     setError("");
     setBestMove("");
-    clearHoverHints();
+    clearSelection();
+    setLastEngineMove(null);
     setGameOverModal({ visible: false, title: "", message: "" });
+    navigate("/play/match");
 
     if (playerColor === "white") {
       setStatus("Your turn.");
@@ -391,60 +405,37 @@ export default function App() {
     void requestEngineMove(fresh.fen());
   }
 
-  function handleSquareHover(square: string) {
+  function tryPlayerMove(from: Square, to: Square): boolean {
     if (isSetup || loading || !playerTurn || game.isGameOver()) {
-      clearHoverHints();
-      return;
-    }
-
-    const castSquare = square as Square;
-    const piece = game.get(castSquare);
-    if (!piece) {
-      clearHoverHints();
-      return;
-    }
-
-    const playerCode = playerColor === "white" ? "w" : "b";
-    if (piece.color !== playerCode) {
-      clearHoverHints();
-      return;
-    }
-
-    const moves = game.moves({ square: castSquare, verbose: true });
-    if (!moves.length) {
-      clearHoverHints();
-      return;
-    }
-
-    setHoverSquare(castSquare);
-    setHoverTargets(moves.map((m) => m.to as Square));
-  }
-
-  function onDrop(sourceSquare: Square, targetSquare: Square): boolean {
-    if (isSetup || loading || game.isGameOver() || !playerTurn) {
       return false;
     }
 
-    const piece = game.get(sourceSquare);
-    if (!piece) return false;
+    const piece = game.get(from);
+    if (!piece) {
+      return false;
+    }
 
-    const playerCode = playerColor === "white" ? "w" : "b";
-    if (piece.color !== playerCode) return false;
+    const playerCode = playerColor ? toPlayerCode(playerColor) : "w";
+    if (piece.color !== playerCode) {
+      return false;
+    }
 
     const next = new Chess(game.fen());
     const move = next.move({
-      from: sourceSquare,
-      to: targetSquare,
+      from,
+      to,
       promotion: "q",
     });
 
-    if (!move) return false;
+    if (!move) {
+      return false;
+    }
 
     setMoveHistory((prev) => [...prev, move.san]);
     setGame(next);
     setError("");
     setBestMove("");
-    clearHoverHints();
+    clearSelection();
 
     if (next.isGameOver()) {
       setStatus(gameOverMessage(next));
@@ -458,6 +449,41 @@ export default function App() {
     return true;
   }
 
+  function handleSquareClick(squareRaw: string) {
+    if (isSetup || loading || !playerTurn || game.isGameOver()) {
+      clearSelection();
+      return;
+    }
+
+    const square = squareRaw as Square;
+
+    if (!selectedSquare) {
+      if (!canControlPiece(square)) {
+        clearSelection();
+        return;
+      }
+
+      setSelectedSquare(square);
+      setSelectedTargets(legalTargetsFor(square));
+      return;
+    }
+
+    if (selectedSquare === square) {
+      clearSelection();
+      return;
+    }
+
+    if (canControlPiece(square)) {
+      setSelectedSquare(square);
+      setSelectedTargets(legalTargetsFor(square));
+      return;
+    }
+
+    if (!tryPlayerMove(selectedSquare, square)) {
+      clearSelection();
+    }
+  }
+
   function resetBoard() {
     setGameStarted(false);
     setPlayerColor(null);
@@ -469,9 +495,11 @@ export default function App() {
     setMoveHistory([]);
     setStartedAt(null);
     setGameSaved(false);
-    setStatus("Choose a side to begin.");
-    clearHoverHints();
+    setStatus("Pick a mode to begin.");
+    clearSelection();
+    setLastEngineMove(null);
     setGameOverModal({ visible: false, title: "", message: "" });
+    navigate("/play");
   }
 
   const filteredGames = useMemo(() => {
@@ -499,310 +527,134 @@ export default function App() {
     [filteredGames, selectedGameId],
   );
 
+  useEffect(() => {
+    if (location.pathname === "/history" && authToken) {
+      void fetchRecentGames();
+    }
+  }, [location.pathname, authToken]);
+
+  useEffect(() => {
+    setShowUserMenu(false);
+  }, [location.pathname]);
+
   return (
     <div className="app-shell">
       <div className="grain" aria-hidden="true" />
 
       <main className="board-page">
-        <header className="topbar">
-          <div>
-            <h1>Play vs Computer</h1>
-            <p>Choose your side, then challenge Stockfish in real time.</p>
-          </div>
-          <div className="auth-controls">
-            {user ? (
-              <div className="user-chip-wrap">
-                <button
-                  className="user-chip"
-                  title={user.name}
-                  onClick={() => setShowUserMenu((prev) => !prev)}
-                  aria-label="User menu"
-                >
-                  {user.picture ? (
-                    <img src={user.picture} alt="User" />
-                  ) : (
-                    user.name.slice(0, 1).toUpperCase()
-                  )}
-                </button>
-                {showUserMenu && (
-                  <div className="user-menu">
-                    <button className="user-menu-item" onClick={openRecentGamesPage}>Recent Games</button>
-                    <button className="user-menu-item" onClick={() => { setShowUserMenu(false); setCurrentPage("play"); }}>
-                      Back To Play
-                    </button>
-                    <button className="btn btn-light" onClick={handleLogout}>Sign Out</button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                <GoogleLogin
-                  onSuccess={handleGoogleSuccess}
-                  onError={() => setError("Google sign-in failed")}
-                />
-                {authLoading && <p className="auth-loading">Signing in...</p>}
-              </div>
-            )}
-          </div>
-        </header>
+        <AppHeader
+          user={user}
+          showUserMenu={showUserMenu}
+          onToggleUserMenu={() => setShowUserMenu((prev) => !prev)}
+          onGoHome={() => navigate("/")}
+          onGoHistory={openRecentGamesPage}
+          onGoPlay={() => navigate("/play")}
+          onLogout={handleLogout}
+        />
 
-        {currentPage === "history" ? (
-          <section className="history-page">
-            <div className="history-toolbar">
-              <h2>Recent Games</h2>
-              <div className="history-actions">
-                <button className="btn btn-light" onClick={() => void fetchRecentGames()} disabled={gamesLoading}>
-                  {gamesLoading ? "Refreshing..." : "Refresh"}
-                </button>
-                <button className="btn btn-dark" onClick={() => setCurrentPage("play")}>Back To Play</button>
-              </div>
-            </div>
+        <Routes>
+          <Route path="/" element={<HomePage onPlay={() => navigate("/play")} onAnalyze={openRecentGamesPage} />} />
 
-            <div className="history-filters">
-              <label>
-                Result
-                <select value={filterResult} onChange={(e) => setFilterResult(e.target.value as "all" | GameResult)}>
-                  <option value="all">All</option>
-                  <option value="win">Win</option>
-                  <option value="loss">Loss</option>
-                  <option value="draw">Draw</option>
-                  <option value="aborted">Aborted</option>
-                </select>
-              </label>
-              <label>
-                Difficulty
-                <select
-                  value={filterDifficulty}
-                  onChange={(e) => setFilterDifficulty(e.target.value as "all" | DifficultyLevel)}
-                >
-                  <option value="all">All</option>
-                  <option value="easy">Easy</option>
-                  <option value="medium">Medium</option>
-                  <option value="hard">Hard</option>
-                </select>
-              </label>
-              <label>
-                Side
-                <select value={filterColor} onChange={(e) => setFilterColor(e.target.value as "all" | PlayerColor)}>
-                  <option value="all">All</option>
-                  <option value="white">White</option>
-                  <option value="black">Black</option>
-                </select>
-              </label>
-              <label className="search-field">
-                Search
-                <input
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  placeholder="Result, date, difficulty, side..."
-                />
-              </label>
-            </div>
-
-            {gamesError && <div className="error-box">{gamesError}</div>}
-
-            <div className="history-layout">
-              <div className="history-list-panel">
-                {gamesLoading ? (
-                  <p className="history-empty">Loading games...</p>
-                ) : filteredGames.length === 0 ? (
-                  <p className="history-empty">No games match your filters yet.</p>
-                ) : (
-                  <div className="history-list">
-                    {filteredGames.map((g) => (
-                      <button
-                        className={`history-card ${selectedGame?.id === g.id ? "is-active" : ""}`}
-                        key={g.id}
-                        onClick={() => setSelectedGameId(g.id)}
-                      >
-                        <div className="history-topline">
-                          <span className={`result-pill result-${g.result}`}>{resultLabel(g.result)}</span>
-                          <span>{formatDate(g.finished_at)}</span>
-                        </div>
-                        <div className="history-meta">
-                          <span>Difficulty: <strong>{g.difficulty[0].toUpperCase() + g.difficulty.slice(1)}</strong></span>
-                          <span>Side: <strong>{g.player_color === "white" ? "White" : "Black"}</strong></span>
-                          <span>Moves: <strong>{g.move_history?.length ?? 0}</strong></span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <aside className="history-detail-panel">
-                {selectedGame ? (
-                  <>
-                    <h3>Move Sequence</h3>
-                    <div className="history-summary">
-                      <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
-                      <span>{formatDate(selectedGame.finished_at)}</span>
-                    </div>
-                    <div className="move-lines">
-                      {movePairs(selectedGame.move_history ?? []).map((line, idx) => (
-                        <div className="move-line" key={`${selectedGame.id}-${idx}`}>{line}</div>
-                      ))}
-                    </div>
-                    {selectedGame.pgn && (
-                      <div className="fen-block">
-                        <span>PGN</span>
-                        <code>{selectedGame.pgn}</code>
-                      </div>
-                    )}
-                    {selectedGame.final_fen && (
-                      <div className="fen-block">
-                        <span>Final FEN</span>
-                        <code>{selectedGame.final_fen}</code>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="history-empty">Select a game to inspect moves.</p>
-                )}
-              </aside>
-            </div>
-          </section>
-        ) : isSetup ? (
-          <section className="setup-card">
-            <h2>Select Side And Difficulty</h2>
-            <p>Pick your color and challenge level before starting.</p>
-
-            <h3 className="setup-subtitle">Your Side</h3>
-            <div className="setup-actions">
-              <button
-                className={`btn btn-light ${playerColor === "white" ? "is-selected" : ""}`}
-                onClick={() => setPlayerColor("white")}
-              >
-                Play as White
-              </button>
-              <button
-                className={`btn btn-dark ${playerColor === "black" ? "is-selected" : ""}`}
-                onClick={() => setPlayerColor("black")}
-              >
-                Play as Black
-              </button>
-            </div>
-            <div className="selection-hint">
-              {playerColor ? `Selected: ${playerColor === "white" ? "White" : "Black"}` : "Select White or Black"}
-            </div>
-
-            <h3 className="setup-subtitle">Difficulty</h3>
-            <div className="difficulty-actions">
-              <button
-                className={`btn btn-difficulty ${difficulty === "easy" ? "is-selected" : ""}`}
-                onClick={() => setDifficulty("easy")}
-              >
-                Easy
-              </button>
-              <button
-                className={`btn btn-difficulty ${difficulty === "medium" ? "is-selected" : ""}`}
-                onClick={() => setDifficulty("medium")}
-              >
-                Medium
-              </button>
-              <button
-                className={`btn btn-difficulty ${difficulty === "hard" ? "is-selected" : ""}`}
-                onClick={() => setDifficulty("hard")}
-              >
-                Hard
-              </button>
-            </div>
-            <div className="selection-hint">
-              {difficulty
-                ? `Difficulty: ${difficulty[0].toUpperCase() + difficulty.slice(1)}`
-                : "Select Easy, Medium, or Hard"}
-            </div>
-
-            <button className="btn btn-start" onClick={startGame} disabled={!playerColor || !difficulty}>
-              Start Game
-            </button>
-          </section>
-        ) : (
-          <section className="game-grid">
-            <div className="board-wrap">
-              <Chessboard
-                options={{
-                  position: fen,
-                  boardOrientation: playerColor ?? undefined,
-                  squareStyles,
-                  onMouseOverSquare: ({ square }) => handleSquareHover(square),
-                  onMouseOutSquare: () => clearHoverHints(),
-                  onPieceDrop: ({ sourceSquare, targetSquare }) => {
-                    if (!targetSquare) return false;
-                    return onDrop(sourceSquare as Square, targetSquare as Square);
-                  },
-                }}
+          <Route
+            path="/history"
+            element={(
+              <HistoryPage
+                gamesLoading={gamesLoading}
+                gamesError={gamesError}
+                filteredGames={filteredGames}
+                selectedGame={selectedGame}
+                filterResult={filterResult}
+                filterDifficulty={filterDifficulty}
+                filterColor={filterColor}
+                searchText={searchText}
+                resultLabel={resultLabel}
+                formatDate={formatDate}
+                movePairs={movePairs}
+                toLabel={toLabel}
+                onRefresh={() => void fetchRecentGames()}
+                onPlayNow={() => navigate("/play")}
+                onSetFilterResult={setFilterResult}
+                onSetFilterDifficulty={setFilterDifficulty}
+                onSetFilterColor={setFilterColor}
+                onSetSearchText={setSearchText}
+                onSelectGame={setSelectedGameId}
               />
-            </div>
+            )}
+          />
 
-            <aside className="panel">
-              <h2>Match Console</h2>
-              <div className="row">
-                <span>You:</span>
-                <strong>{playerColor === "white" ? "White" : "Black"}</strong>
-              </div>
-              <div className="row">
-                <span>Difficulty:</span>
-                <strong>{difficulty ? difficulty[0].toUpperCase() + difficulty.slice(1) : "-"}</strong>
-              </div>
-              <div className="row">
-                <span>Turn:</span>
-                <strong>{game.turn() === "w" ? "White" : "Black"}</strong>
-              </div>
-              <div className="row">
-                <span>Status:</span>
-                <strong>{loading ? "Computer thinking..." : status}</strong>
-              </div>
-              <div className="row">
-                <span>Engine Move:</span>
-                <strong>{bestMove || "-"}</strong>
-              </div>
+          <Route
+            path="/play"
+            element={(
+              <PlaySetupPage
+                playerColor={playerColor}
+                difficulty={difficulty}
+                toLabel={toLabel}
+                onSetPlayerColor={setPlayerColor}
+                onSetDifficulty={setDifficulty}
+                onStart={startGame}
+              />
+            )}
+          />
 
-              <div className="fen-block">
-                <span>FEN</span>
-                <code>{fen}</code>
-              </div>
+          <Route
+            path="/play/match"
+            element={gameStarted ? (
+              <MatchPage
+                fen={fen}
+                playerColor={playerColor}
+                difficulty={difficulty}
+                gameTurn={game.turn()}
+                loading={loading}
+                status={status}
+                bestMove={bestMove}
+                error={error}
+                squareStyles={squareStyles}
+                toLabel={toLabel}
+                onSquareClick={handleSquareClick}
+                onPieceDrop={tryPlayerMove}
+                onReset={resetBoard}
+              />
+            ) : <Navigate to="/play" replace />}
+          />
 
-              {error && <div className="error-box">{error}</div>}
-
-              <button className="btn btn-reset" onClick={resetBoard}>
-                New Game
-              </button>
-            </aside>
-          </section>
-        )}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
 
         <footer className="hint-line">
-          {isSetup
-            ? "Tip: choose Black if you want Stockfish to make the first move."
-            : playerTurn
-              ? "Your move: hover a piece to preview legal squares, then drag to play."
-              : "Wait for computer reply. Dragging is disabled on computer turn."}
+          {location.pathname === "/"
+            ? "Start with Play With Computer for a new game or Analyze to review your previous battles."
+            : isSetup
+              ? "Tip: choose Black if you want Stockfish to make the first move."
+              : playerTurn
+                ? "Your move: click your piece, click destination. Drag-and-drop also works."
+                : "Wait for computer reply. Moves are disabled during engine turn."}
         </footer>
       </main>
 
-      {gameOverModal.visible && (
-        <div className="modal-backdrop" role="presentation">
-          <section className="result-modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
-            <h2 id="result-title">{gameOverModal.title}</h2>
-            <p>{gameOverModal.message}</p>
-            <div className="modal-actions">
-              <button className="btn btn-reset" onClick={resetBoard}>
-                New Game
-              </button>
-              <button
-                className="btn btn-light"
-                onClick={() => setGameOverModal((prev) => ({ ...prev, visible: false }))}
-              >
-                Close
-              </button>
-            </div>
-          </section>
-        </div>
+      <GameOverModal
+        modal={gameOverModal}
+        onNewGame={resetBoard}
+        onClose={() => setGameOverModal((prev) => ({ ...prev, visible: false }))}
+      />
+
+      {needsAuth && (
+        <AuthModal
+          authLoading={authLoading}
+          onSuccess={handleGoogleSuccess}
+          onError={() => setError("Google sign-in failed")}
+        />
       )}
 
       <div className="corner-orb" aria-hidden="true" />
       <div className="corner-orb orb-two" aria-hidden="true" />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <HashRouter>
+      <AppInner />
+    </HashRouter>
   );
 }
