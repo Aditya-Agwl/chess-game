@@ -23,7 +23,7 @@ type Props = {
   onSquareClick: (square: string) => void;
   onPieceDrop: (sourceSquare: Square, targetSquare: Square) => boolean;
   onUndo: () => void;
-  onReset: () => void;
+  onEndGame: () => void;
 };
 
 export default function MatchPage({
@@ -46,7 +46,7 @@ export default function MatchPage({
   onSquareClick,
   onPieceDrop,
   onUndo,
-  onReset,
+  onEndGame,
 }: Props) {
   return (
     <section className="game-grid">
@@ -113,8 +113,8 @@ export default function MatchPage({
           Undo Last Turn
         </button>
 
-        <button className="btn btn-reset" onClick={onReset}>
-          New Game
+        <button className="btn btn-reset" onClick={onEndGame}>
+          End Game (Counts as Loss)
         </button>
       </aside>
     </section>

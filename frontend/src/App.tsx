@@ -45,6 +45,18 @@ type GameSnapshot = {
   lastEngineMove: { from: Square; to: Square } | null;
 };
 
+type ClockState = {
+  white: number;
+  black: number;
+};
+
+type ClockComputationOptions = {
+  base?: ClockState;
+  turn?: "w" | "b";
+  turnStartedAt?: number | null;
+  isLive?: boolean;
+};
+
 const TIME_CONTROL_PRESETS: Record<TimeControl, TimeControlPreset> = {
   "3+2": { label: "3 min + 2 sec", baseSeconds: 180, incrementSeconds: 2 },
   "5+0": { label: "5 min", baseSeconds: 300, incrementSeconds: 0 },
@@ -196,13 +208,16 @@ function AppInner() {
     setSnapshots((prev) => [...prev, snapshot]);
   }
 
-  function currentClockState(now: number): { white: number; black: number } {
-    let white = whiteTimeMs;
-    let black = blackTimeMs;
+  function currentClockState(now: number, options?: ClockComputationOptions): ClockState {
+    let white = options?.base?.white ?? whiteTimeMs;
+    let black = options?.base?.black ?? blackTimeMs;
+    const turn = options?.turn ?? game.turn();
+    const turnStartedAt = options?.turnStartedAt ?? activeTurnStartedAt;
+    const isLive = options?.isLive ?? (gameStarted && !game.isGameOver());
 
-    if (!isSetup && !game.isGameOver() && activeTurnStartedAt !== null) {
-      const elapsed = Math.max(0, now - activeTurnStartedAt);
-      if (game.turn() === "w") {
+    if (isLive && turnStartedAt !== null) {
+      const elapsed = Math.max(0, now - turnStartedAt);
+      if (turn === "w") {
         white = Math.max(0, white - elapsed);
       } else {
         black = Math.max(0, black - elapsed);
@@ -212,8 +227,12 @@ function AppInner() {
     return { white, black };
   }
 
-  function settleMoverClock(mover: "w" | "b", now: number): { white: number; black: number; timedOut: boolean } {
-    const current = currentClockState(now);
+  function settleMoverClock(
+    mover: "w" | "b",
+    now: number,
+    options?: ClockComputationOptions,
+  ): { white: number; black: number; timedOut: boolean } {
+    const current = currentClockState(now, options);
     if (mover === "w") {
       if (current.white <= 0) {
         return { white: 0, black: current.black, timedOut: true };
@@ -438,7 +457,7 @@ function AppInner() {
   }
 
   function onTimeExpired(loser: "w" | "b") {
-    if (game.isGameOver() || !playerColor || timedOutLoser) return;
+    if (!gameStarted || game.isGameOver() || !playerColor || timedOutLoser) return;
 
     invalidateEngineRequests();
     setLoading(false);
@@ -454,7 +473,11 @@ function AppInner() {
     void saveGameIfNeeded(game, result);
   }
 
-  async function requestEngineMove(currentFen: string, historyBeforeMove: string[]) {
+  async function requestEngineMove(
+    currentFen: string,
+    historyBeforeMove: string[],
+    clockContext?: { base: ClockState; turnStartedAt: number },
+  ) {
     if (!difficulty) {
       setError("Difficulty is not selected.");
       return;
@@ -495,8 +518,14 @@ function AppInner() {
 
       const move = data.best_move;
       const moveNow = Date.now();
-      const engineSide = new Chess(currentFen).turn();
-      const settled = settleMoverClock(engineSide, moveNow);
+      const currentPosition = new Chess(currentFen);
+      const engineSide = currentPosition.turn();
+      const settled = settleMoverClock(engineSide, moveNow, {
+        base: clockContext?.base,
+        turn: engineSide,
+        turnStartedAt: clockContext?.turnStartedAt,
+        isLive: true,
+      });
       if (settled.timedOut) {
         onTimeExpired(engineSide);
         return;
@@ -590,7 +619,12 @@ function AppInner() {
       return;
     }
 
-    void requestEngineMove(fresh.fen(), []);
+    window.setTimeout(() => {
+      void requestEngineMove(fresh.fen(), [], {
+        base: { white: baseMs, black: baseMs },
+        turnStartedAt: now,
+      });
+    }, 0);
   }
 
   function tryPlayerMove(from: Square, to: Square): boolean {
@@ -752,6 +786,18 @@ function AppInner() {
     navigate("/play");
   }
 
+  async function endGameAsLoss() {
+    invalidateEngineRequests();
+    setLoading(false);
+    clearSelection();
+
+    if (gameStarted && !game.isGameOver() && !timedOutLoser) {
+      await saveGameIfNeeded(game, "loss");
+    }
+
+    resetBoard();
+  }
+
   const filteredGames = useMemo(() => {
     const query = searchText.trim().toLowerCase();
     return recentGames.filter((g) => {
@@ -783,7 +829,7 @@ function AppInner() {
   const blackClock = formatClock(displayClocks.black);
 
   useEffect(() => {
-    if (isSetup || game.isGameOver()) {
+    if (!gameStarted || isSetup || game.isGameOver()) {
       return;
     }
 
@@ -792,10 +838,10 @@ function AppInner() {
     }, 250);
 
     return () => window.clearInterval(id);
-  }, [isSetup, game]);
+  }, [gameStarted, isSetup, game]);
 
   useEffect(() => {
-    if (isSetup || game.isGameOver() || !playerColor || !timeControl || timedOutLoser) {
+    if (!gameStarted || isSetup || game.isGameOver() || !playerColor || !timeControl || timedOutLoser) {
       return;
     }
 
@@ -807,7 +853,7 @@ function AppInner() {
     if (game.turn() === "b" && clocks.black <= 0) {
       onTimeExpired("b");
     }
-  }, [clockTick, game, isSetup, playerColor, timeControl, timedOutLoser]);
+  }, [clockTick, game, gameStarted, isSetup, playerColor, timeControl, timedOutLoser]);
 
   useEffect(() => {
     if (location.pathname === "/history" && authToken) {
@@ -904,7 +950,7 @@ function AppInner() {
                 onSquareClick={handleSquareClick}
                 onPieceDrop={tryPlayerMove}
                 onUndo={undoLastTurn}
-                onReset={resetBoard}
+                onEndGame={endGameAsLoss}
               />
             ) : <Navigate to="/play" replace />}
           />

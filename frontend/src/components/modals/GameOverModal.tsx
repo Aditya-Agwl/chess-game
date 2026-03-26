@@ -18,7 +18,7 @@ export default function GameOverModal({ modal, onNewGame, onClose }: Props) {
         <p>{modal.message}</p>
         <div className="modal-actions">
           <button className="btn btn-reset" onClick={onNewGame}>
-            New Game
+            Back to Setup
           </button>
           <button className="btn btn-light" onClick={onClose}>
             Close
