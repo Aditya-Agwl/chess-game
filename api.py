@@ -57,6 +57,7 @@ auth_scheme = HTTPBearer(auto_error=False)
 DifficultyLevel = Literal["easy", "medium", "hard"]
 PlayerColor = Literal["white", "black"]
 GameResult = Literal["win", "loss", "draw", "aborted"]
+TimeControl = Literal["3+2", "5+0", "10+0", "10+3", "15+10"]
 
 DIFFICULTY_PROFILES = {
     "easy": {
@@ -102,6 +103,12 @@ class SaveGameRequest(BaseModel):
     result: GameResult
     difficulty: DifficultyLevel
     player_color: PlayerColor
+    time_control: TimeControl | None = None
+    initial_seconds: int | None = None
+    increment_seconds: int | None = None
+    white_time_left_ms: int | None = None
+    black_time_left_ms: int | None = None
+    timeout_loser: PlayerColor | None = None
     final_fen: str
     move_history: list[str]
     pgn: str | None = None
@@ -124,6 +131,12 @@ def serialize_game(doc: dict) -> dict:
         "result": doc.get("result"),
         "difficulty": doc.get("difficulty"),
         "player_color": doc.get("player_color"),
+        "time_control": doc.get("time_control"),
+        "initial_seconds": doc.get("initial_seconds"),
+        "increment_seconds": doc.get("increment_seconds"),
+        "white_time_left_ms": doc.get("white_time_left_ms"),
+        "black_time_left_ms": doc.get("black_time_left_ms"),
+        "timeout_loser": doc.get("timeout_loser"),
         "final_fen": doc.get("final_fen"),
         "move_history": doc.get("move_history", []),
         "pgn": doc.get("pgn"),
@@ -277,6 +290,12 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
         "result": req.result,
         "difficulty": req.difficulty,
         "player_color": req.player_color,
+        "time_control": req.time_control,
+        "initial_seconds": req.initial_seconds,
+        "increment_seconds": req.increment_seconds,
+        "white_time_left_ms": req.white_time_left_ms,
+        "black_time_left_ms": req.black_time_left_ms,
+        "timeout_loser": req.timeout_loser,
         "final_fen": req.final_fen,
         "move_history": req.move_history,
         "pgn": req.pgn,

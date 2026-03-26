@@ -1,20 +1,26 @@
-import type { DifficultyLevel, PlayerColor } from "../../types";
+import type { DifficultyLevel, PlayerColor, TimeControl } from "../../types";
 
 type Props = {
   playerColor: PlayerColor | null;
   difficulty: DifficultyLevel | null;
+  timeControl: TimeControl | null;
   toLabel: (value: string) => string;
+  toTimeControlLabel: (value: TimeControl) => string;
   onSetPlayerColor: (value: PlayerColor) => void;
   onSetDifficulty: (value: DifficultyLevel) => void;
+  onSetTimeControl: (value: TimeControl) => void;
   onStart: () => void;
 };
 
 export default function PlaySetupPage({
   playerColor,
   difficulty,
+  timeControl,
   toLabel,
+  toTimeControlLabel,
   onSetPlayerColor,
   onSetDifficulty,
+  onSetTimeControl,
   onStart,
 }: Props) {
   return (
@@ -66,7 +72,44 @@ export default function PlaySetupPage({
         {difficulty ? `Difficulty: ${toLabel(difficulty)}` : "Select Easy, Medium, or Hard"}
       </div>
 
-      <button className="btn btn-start" onClick={onStart} disabled={!playerColor || !difficulty}>
+      <h3 className="setup-subtitle">Time Control</h3>
+      <div className="difficulty-actions time-control-actions">
+        <button
+          className={`btn btn-difficulty ${timeControl === "3+2" ? "is-selected" : ""}`}
+          onClick={() => onSetTimeControl("3+2")}
+        >
+          3 + 2
+        </button>
+        <button
+          className={`btn btn-difficulty ${timeControl === "5+0" ? "is-selected" : ""}`}
+          onClick={() => onSetTimeControl("5+0")}
+        >
+          5 + 0
+        </button>
+        <button
+          className={`btn btn-difficulty ${timeControl === "10+0" ? "is-selected" : ""}`}
+          onClick={() => onSetTimeControl("10+0")}
+        >
+          10 + 0
+        </button>
+        <button
+          className={`btn btn-difficulty ${timeControl === "10+3" ? "is-selected" : ""}`}
+          onClick={() => onSetTimeControl("10+3")}
+        >
+          10 + 3
+        </button>
+        <button
+          className={`btn btn-difficulty ${timeControl === "15+10" ? "is-selected" : ""}`}
+          onClick={() => onSetTimeControl("15+10")}
+        >
+          15 + 10
+        </button>
+      </div>
+      <div className="selection-hint">
+        {timeControl ? `Clock: ${toTimeControlLabel(timeControl)}` : "Select a time control"}
+      </div>
+
+      <button className="btn btn-start" onClick={onStart} disabled={!playerColor || !difficulty || !timeControl}>
         Start Game
       </button>
     </section>

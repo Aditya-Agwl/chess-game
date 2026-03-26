@@ -474,6 +474,10 @@ body {
   gap: 10px;
 }
 
+.time-control-actions {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .btn-difficulty {
   background: #efe4d0;
   color: #342a1d;
@@ -549,6 +553,40 @@ body {
 .row strong {
   text-align: right;
   font-size: 0.95rem;
+}
+
+.clock-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.clock-box {
+  border: 1px solid #e7d6bc;
+  border-radius: 12px;
+  background: #f8efe0;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.clock-box span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.clock-box strong {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 1.14rem;
+  color: #2f2518;
+}
+
+.clock-box.is-active {
+  border-color: #d88f26;
+  box-shadow: 0 0 0 2px rgba(216, 143, 38, 0.24);
 }
 
 .fen-block {
@@ -817,6 +855,10 @@ body {
 
   .difficulty-actions {
     grid-template-columns: 1fr;
+  }
+
+  .time-control-actions {
+    grid-template-columns: 1fr 1fr;
   }
 
   .board-wrap {

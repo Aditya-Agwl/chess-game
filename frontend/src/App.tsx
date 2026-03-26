@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Chess } from "chess.js";
 import type { Square } from "chess.js";
@@ -19,6 +19,7 @@ import type {
   GameResult,
   PlayerColor,
   SavedGame,
+  TimeControl,
 } from "./types";
 import { formatDate, movePairs, resultLabel, toLabel } from "./utils/gameFormat";
 import "./App.css";
@@ -26,6 +27,31 @@ import "./App.css";
 const API_BASE = import.meta.env.VITE_API_BASE ?? "https://chess-backend.agarwaladi.co.in";
 const TOKEN_KEY = "chess_auth_token";
 const USER_KEY = "chess_auth_user";
+
+type TimeControlPreset = {
+  label: string;
+  baseSeconds: number;
+  incrementSeconds: number;
+};
+
+type GameSnapshot = {
+  fen: string;
+  moveHistory: string[];
+  whiteTimeMs: number;
+  blackTimeMs: number;
+  activeTurnStartedAt: number;
+  status: string;
+  bestMove: string;
+  lastEngineMove: { from: Square; to: Square } | null;
+};
+
+const TIME_CONTROL_PRESETS: Record<TimeControl, TimeControlPreset> = {
+  "3+2": { label: "3 min + 2 sec", baseSeconds: 180, incrementSeconds: 2 },
+  "5+0": { label: "5 min", baseSeconds: 300, incrementSeconds: 0 },
+  "10+0": { label: "10 min", baseSeconds: 600, incrementSeconds: 0 },
+  "10+3": { label: "10 min + 3 sec", baseSeconds: 600, incrementSeconds: 3 },
+  "15+10": { label: "15 min + 10 sec", baseSeconds: 900, incrementSeconds: 10 },
+};
 
 const sourceSquareStyle: CSSProperties = {
   boxShadow: "inset 0 0 0 3px rgba(186, 123, 20, 0.96)",
@@ -75,6 +101,13 @@ function AppInner() {
   const [gameStarted, setGameStarted] = useState(false);
   const [playerColor, setPlayerColor] = useState<PlayerColor | null>(null);
   const [difficulty, setDifficulty] = useState<DifficultyLevel | null>(null);
+  const [timeControl, setTimeControl] = useState<TimeControl | null>(null);
+  const [whiteTimeMs, setWhiteTimeMs] = useState(0);
+  const [blackTimeMs, setBlackTimeMs] = useState(0);
+  const [activeTurnStartedAt, setActiveTurnStartedAt] = useState<number | null>(null);
+  const [clockTick, setClockTick] = useState(() => Date.now());
+  const [snapshots, setSnapshots] = useState<GameSnapshot[]>([]);
+  const [timedOutLoser, setTimedOutLoser] = useState<"w" | "b" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [bestMove, setBestMove] = useState("");
@@ -90,11 +123,15 @@ function AppInner() {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [gameSaved, setGameSaved] = useState(false);
+  const engineRequestIdRef = useRef(0);
 
   const fen = useMemo(() => game.fen(), [game]);
   const isSetup = !gameStarted;
+  const activePreset = timeControl ? TIME_CONTROL_PRESETS[timeControl] : null;
+  const incrementMs = (activePreset?.incrementSeconds ?? 0) * 1000;
   const playerTurn =
     !isSetup && ((game.turn() === "w" && playerColor === "white") || (game.turn() === "b" && playerColor === "black"));
+  const canUndo = !isSetup && snapshots.length > 1;
 
   const needsAuth = !authToken || !user;
 
@@ -126,6 +163,86 @@ function AppInner() {
   function clearSelection() {
     setSelectedSquare(null);
     setSelectedTargets([]);
+  }
+
+  function toTimeControlLabel(control: TimeControl): string {
+    return TIME_CONTROL_PRESETS[control].label;
+  }
+
+  function formatClock(ms: number): string {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  }
+
+  function invalidateEngineRequests() {
+    engineRequestIdRef.current += 1;
+  }
+
+  function setSnapshot(snapshot: GameSnapshot) {
+    setGame(new Chess(snapshot.fen));
+    setMoveHistory(snapshot.moveHistory);
+    setWhiteTimeMs(snapshot.whiteTimeMs);
+    setBlackTimeMs(snapshot.blackTimeMs);
+    setActiveTurnStartedAt(snapshot.activeTurnStartedAt);
+    setStatus(snapshot.status);
+    setBestMove(snapshot.bestMove);
+    setLastEngineMove(snapshot.lastEngineMove);
+  }
+
+  function pushSnapshot(snapshot: GameSnapshot) {
+    setSnapshot(snapshot);
+    setSnapshots((prev) => [...prev, snapshot]);
+  }
+
+  function currentClockState(now: number): { white: number; black: number } {
+    let white = whiteTimeMs;
+    let black = blackTimeMs;
+
+    if (!isSetup && !game.isGameOver() && activeTurnStartedAt !== null) {
+      const elapsed = Math.max(0, now - activeTurnStartedAt);
+      if (game.turn() === "w") {
+        white = Math.max(0, white - elapsed);
+      } else {
+        black = Math.max(0, black - elapsed);
+      }
+    }
+
+    return { white, black };
+  }
+
+  function settleMoverClock(mover: "w" | "b", now: number): { white: number; black: number; timedOut: boolean } {
+    const current = currentClockState(now);
+    if (mover === "w") {
+      if (current.white <= 0) {
+        return { white: 0, black: current.black, timedOut: true };
+      }
+      return {
+        white: current.white + incrementMs,
+        black: current.black,
+        timedOut: false,
+      };
+    }
+
+    if (current.black <= 0) {
+      return { white: current.white, black: 0, timedOut: true };
+    }
+    return {
+      white: current.white,
+      black: current.black + incrementMs,
+      timedOut: false,
+    };
+  }
+
+  function showTimeoutModal(loser: "w" | "b") {
+    const loserColor: PlayerColor = loser === "w" ? "white" : "black";
+    const youLost = loserColor === playerColor;
+    setGameOverModal({
+      visible: true,
+      title: youLost ? "You Lost" : "You Won!",
+      message: youLost ? "Your clock ran out." : "Computer ran out of time.",
+    });
   }
 
   function toPlayerCode(side: PlayerColor): "w" | "b" {
@@ -225,8 +342,12 @@ function AppInner() {
     navigate("/history");
   }
 
-  async function saveGameIfNeeded(g: Chess) {
+  async function saveGameIfNeeded(g: Chess, forcedResult?: GameResult, historyOverride?: string[]) {
     if (!authToken || !difficulty || !playerColor || gameSaved) return;
+
+    const clocks = currentClockState(Date.now());
+    const whiteLeft = timedOutLoser === "w" ? 0 : clocks.white;
+    const blackLeft = timedOutLoser === "b" ? 0 : clocks.black;
 
     try {
       const res = await fetch(API_BASE + "/games", {
@@ -236,11 +357,17 @@ function AppInner() {
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
-          result: gameResultForPlayer(g),
+          result: forcedResult ?? gameResultForPlayer(g),
           difficulty,
           player_color: playerColor,
+          time_control: timeControl,
+          initial_seconds: activePreset?.baseSeconds,
+          increment_seconds: activePreset?.incrementSeconds,
+          white_time_left_ms: Math.max(0, Math.round(whiteLeft)),
+          black_time_left_ms: Math.max(0, Math.round(blackLeft)),
+          timeout_loser: timedOutLoser === "w" ? "white" : timedOutLoser === "b" ? "black" : undefined,
           final_fen: g.fen(),
-          move_history: moveHistory,
+          move_history: historyOverride ?? moveHistory,
           pgn: g.pgn(),
           started_at: startedAt,
           finished_at: new Date().toISOString(),
@@ -310,11 +437,31 @@ function AppInner() {
     localStorage.removeItem(USER_KEY);
   }
 
-  async function requestEngineMove(currentFen: string) {
+  function onTimeExpired(loser: "w" | "b") {
+    if (game.isGameOver() || !playerColor || timedOutLoser) return;
+
+    invalidateEngineRequests();
+    setLoading(false);
+    setTimedOutLoser(loser);
+    setError("");
+    clearSelection();
+
+    const loserLabel = loser === "w" ? "White" : "Black";
+    setStatus(`${loserLabel} flagged on time.`);
+    showTimeoutModal(loser);
+
+    const result: GameResult = (loser === "w" ? "white" : "black") === playerColor ? "loss" : "win";
+    void saveGameIfNeeded(game, result);
+  }
+
+  async function requestEngineMove(currentFen: string, historyBeforeMove: string[]) {
     if (!difficulty) {
       setError("Difficulty is not selected.");
       return;
     }
+
+    const requestId = engineRequestIdRef.current + 1;
+    engineRequestIdRef.current = requestId;
 
     setLoading(true);
     setError("");
@@ -334,6 +481,10 @@ function AppInner() {
 
       const data: { best_move?: string; detail?: string } = await res.json();
 
+      if (engineRequestIdRef.current !== requestId) {
+        return;
+      }
+
       if (!res.ok) {
         throw new Error(data.detail || "Request failed");
       }
@@ -343,6 +494,14 @@ function AppInner() {
       }
 
       const move = data.best_move;
+      const moveNow = Date.now();
+      const engineSide = new Chess(currentFen).turn();
+      const settled = settleMoverClock(engineSide, moveNow);
+      if (settled.timedOut) {
+        onTimeExpired(engineSide);
+        return;
+      }
+
       const next = new Chess(currentFen);
       const applied = next.move({
         from: move.slice(0, 2) as Square,
@@ -354,59 +513,88 @@ function AppInner() {
         throw new Error(`Engine returned an invalid move: ${move}`);
       }
 
-      setMoveHistory((prev) => [...prev, applied.san]);
-      setBestMove(move);
-      setGame(next);
-      setLastEngineMove({
+      const nextMoveHistory = [...historyBeforeMove, applied.san];
+      const nextStatus = next.isGameOver() ? gameOverMessage(next) : "Your turn.";
+      const nextLastEngineMove = {
         from: applied.from as Square,
         to: applied.to as Square,
+      };
+
+      pushSnapshot({
+        fen: next.fen(),
+        moveHistory: nextMoveHistory,
+        whiteTimeMs: settled.white,
+        blackTimeMs: settled.black,
+        activeTurnStartedAt: moveNow,
+        status: nextStatus,
+        bestMove: move,
+        lastEngineMove: nextLastEngineMove,
       });
 
       if (next.isGameOver()) {
-        setStatus(gameOverMessage(next));
         showGameOverModal(next);
-        void saveGameIfNeeded(next);
-      } else {
-        setStatus("Your turn.");
+        void saveGameIfNeeded(next, undefined, nextMoveHistory);
       }
     } catch (e: unknown) {
+      if (engineRequestIdRef.current !== requestId) {
+        return;
+      }
       setError(e instanceof Error ? e.message : "Could not fetch best move");
       setStatus("Computer move failed. Try again.");
     } finally {
-      setLoading(false);
+      if (engineRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }
 
   function startGame() {
-    if (!playerColor || !difficulty) {
-      setError("Please choose both color and difficulty.");
+    if (!playerColor || !difficulty || !timeControl) {
+      setError("Please choose color, difficulty, and time control.");
       return;
     }
 
+    invalidateEngineRequests();
+
     const fresh = new Chess();
+    const now = Date.now();
+    const preset = TIME_CONTROL_PRESETS[timeControl];
+    const baseMs = preset.baseSeconds * 1000;
+    const playerStarts = playerColor === "white";
+
+    const initialSnapshot: GameSnapshot = {
+      fen: fresh.fen(),
+      moveHistory: [],
+      whiteTimeMs: baseMs,
+      blackTimeMs: baseMs,
+      activeTurnStartedAt: now,
+      status: playerStarts ? "Your turn." : "Computer plays first as White.",
+      bestMove: "",
+      lastEngineMove: null,
+    };
+
     setGameStarted(true);
-    setGame(fresh);
+    setSnapshot(initialSnapshot);
+    setSnapshots([initialSnapshot]);
     setStartedAt(new Date().toISOString());
-    setMoveHistory([]);
     setGameSaved(false);
     setError("");
-    setBestMove("");
+    setLoading(false);
     clearSelection();
-    setLastEngineMove(null);
     setGameOverModal({ visible: false, title: "", message: "" });
     navigate("/play/match");
 
-    if (playerColor === "white") {
-      setStatus("Your turn.");
+    setTimedOutLoser(null);
+
+    if (playerStarts) {
       return;
     }
 
-    setStatus("Computer plays first as White.");
-    void requestEngineMove(fresh.fen());
+    void requestEngineMove(fresh.fen(), []);
   }
 
   function tryPlayerMove(from: Square, to: Square): boolean {
-    if (isSetup || loading || !playerTurn || game.isGameOver()) {
+    if (isSetup || loading || !playerTurn || game.isGameOver() || timedOutLoser) {
       return false;
     }
 
@@ -417,6 +605,13 @@ function AppInner() {
 
     const playerCode = playerColor ? toPlayerCode(playerColor) : "w";
     if (piece.color !== playerCode) {
+      return false;
+    }
+
+    const moveNow = Date.now();
+    const settled = settleMoverClock(playerCode, moveNow);
+    if (settled.timedOut) {
+      onTimeExpired(playerCode);
       return false;
     }
 
@@ -431,26 +626,74 @@ function AppInner() {
       return false;
     }
 
-    setMoveHistory((prev) => [...prev, move.san]);
-    setGame(next);
+    const nextMoveHistory = [...moveHistory, move.san];
+    const nextStatus = next.isGameOver() ? gameOverMessage(next) : "Computer is thinking...";
+
+    pushSnapshot({
+      fen: next.fen(),
+      moveHistory: nextMoveHistory,
+      whiteTimeMs: settled.white,
+      blackTimeMs: settled.black,
+      activeTurnStartedAt: moveNow,
+      status: nextStatus,
+      bestMove: "",
+      lastEngineMove: null,
+    });
+
     setError("");
-    setBestMove("");
     clearSelection();
 
     if (next.isGameOver()) {
-      setStatus(gameOverMessage(next));
       showGameOverModal(next);
-      void saveGameIfNeeded(next);
+      void saveGameIfNeeded(next, undefined, nextMoveHistory);
       return true;
     }
 
-    setStatus("Computer is thinking...");
-    void requestEngineMove(next.fen());
+    void requestEngineMove(next.fen(), nextMoveHistory);
     return true;
   }
 
+  function undoLastTurn() {
+    if (isSetup || !playerColor || snapshots.length <= 1) {
+      return;
+    }
+
+    invalidateEngineRequests();
+    setLoading(false);
+    setError("");
+    setTimedOutLoser(null);
+    setGameSaved(false);
+    clearSelection();
+    setGameOverModal({ visible: false, title: "", message: "" });
+
+    const currentHistory = game.history({ verbose: true });
+    const latestMove = currentHistory[currentHistory.length - 1];
+    const playerCode = toPlayerCode(playerColor);
+
+    let removeCount = 1;
+    if (latestMove?.color !== playerCode && snapshots.length > 2) {
+      removeCount = 2;
+    }
+
+    const targetIndex = Math.max(0, snapshots.length - 1 - removeCount);
+    const targetSnapshot = snapshots[targetIndex];
+    const nextSnapshots = snapshots.slice(0, targetIndex + 1);
+
+    setSnapshots(nextSnapshots);
+    setSnapshot(targetSnapshot);
+
+    const restored = new Chess(targetSnapshot.fen);
+    if (restored.isGameOver()) {
+      return;
+    }
+
+    if (restored.turn() !== playerCode) {
+      void requestEngineMove(restored.fen(), targetSnapshot.moveHistory);
+    }
+  }
+
   function handleSquareClick(squareRaw: string) {
-    if (isSetup || loading || !playerTurn || game.isGameOver()) {
+    if (isSetup || loading || !playerTurn || game.isGameOver() || timedOutLoser) {
       clearSelection();
       return;
     }
@@ -485,10 +728,17 @@ function AppInner() {
   }
 
   function resetBoard() {
+    invalidateEngineRequests();
     setGameStarted(false);
     setPlayerColor(null);
     setDifficulty(null);
+    setTimeControl(null);
     setGame(new Chess());
+    setWhiteTimeMs(0);
+    setBlackTimeMs(0);
+    setActiveTurnStartedAt(null);
+    setSnapshots([]);
+    setTimedOutLoser(null);
     setLoading(false);
     setError("");
     setBestMove("");
@@ -518,6 +768,7 @@ function AppInner() {
         || g.result.includes(query)
         || g.difficulty.includes(query)
         || g.player_color.includes(query)
+        || (g.time_control ?? "").includes(query)
       );
     });
   }, [recentGames, filterResult, filterDifficulty, filterColor, searchText]);
@@ -526,6 +777,37 @@ function AppInner() {
     () => filteredGames.find((g) => g.id === selectedGameId) ?? filteredGames[0] ?? null,
     [filteredGames, selectedGameId],
   );
+
+  const displayClocks = useMemo(() => currentClockState(clockTick), [clockTick, whiteTimeMs, blackTimeMs, game, activeTurnStartedAt, isSetup]);
+  const whiteClock = formatClock(displayClocks.white);
+  const blackClock = formatClock(displayClocks.black);
+
+  useEffect(() => {
+    if (isSetup || game.isGameOver()) {
+      return;
+    }
+
+    const id = window.setInterval(() => {
+      setClockTick(Date.now());
+    }, 250);
+
+    return () => window.clearInterval(id);
+  }, [isSetup, game]);
+
+  useEffect(() => {
+    if (isSetup || game.isGameOver() || !playerColor || !timeControl || timedOutLoser) {
+      return;
+    }
+
+    const clocks = currentClockState(Date.now());
+    if (game.turn() === "w" && clocks.white <= 0) {
+      onTimeExpired("w");
+      return;
+    }
+    if (game.turn() === "b" && clocks.black <= 0) {
+      onTimeExpired("b");
+    }
+  }, [clockTick, game, isSetup, playerColor, timeControl, timedOutLoser]);
 
   useEffect(() => {
     if (location.pathname === "/history" && authToken) {
@@ -588,9 +870,12 @@ function AppInner() {
               <PlaySetupPage
                 playerColor={playerColor}
                 difficulty={difficulty}
+                timeControl={timeControl}
                 toLabel={toLabel}
+                toTimeControlLabel={toTimeControlLabel}
                 onSetPlayerColor={setPlayerColor}
                 onSetDifficulty={setDifficulty}
+                onSetTimeControl={setTimeControl}
                 onStart={startGame}
               />
             )}
@@ -603,15 +888,22 @@ function AppInner() {
                 fen={fen}
                 playerColor={playerColor}
                 difficulty={difficulty}
+                timeControl={timeControl}
                 gameTurn={game.turn()}
                 loading={loading}
                 status={status}
                 bestMove={bestMove}
+                whiteClock={whiteClock}
+                blackClock={blackClock}
+                activeClock={game.turn()}
                 error={error}
+                canUndo={canUndo}
                 squareStyles={squareStyles}
                 toLabel={toLabel}
+                toTimeControlLabel={toTimeControlLabel}
                 onSquareClick={handleSquareClick}
                 onPieceDrop={tryPlayerMove}
+                onUndo={undoLastTurn}
                 onReset={resetBoard}
               />
             ) : <Navigate to="/play" replace />}

@@ -116,6 +116,7 @@ export default function HistoryPage({
                   <div className="history-meta">
                     <span>Difficulty: <strong>{toLabel(g.difficulty)}</strong></span>
                     <span>Side: <strong>{toLabel(g.player_color)}</strong></span>
+                    <span>Time: <strong>{g.time_control ?? "-"}</strong></span>
                     <span>Moves: <strong>{g.move_history?.length ?? 0}</strong></span>
                   </div>
                 </button>
@@ -131,6 +132,16 @@ export default function HistoryPage({
               <div className="history-summary">
                 <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
                 <span>{formatDate(selectedGame.finished_at)}</span>
+              </div>
+              <div className="history-meta">
+                <span>Time Control: <strong>{selectedGame.time_control ?? "-"}</strong></span>
+                <span>
+                  Clock Left: <strong>
+                    {selectedGame.white_time_left_ms !== undefined && selectedGame.black_time_left_ms !== undefined
+                      ? `${Math.max(0, Math.ceil(selectedGame.white_time_left_ms / 1000))}s / ${Math.max(0, Math.ceil(selectedGame.black_time_left_ms / 1000))}s`
+                      : "-"}
+                  </strong>
+                </span>
               </div>
               <div className="move-lines">
                 {movePairs(selectedGame.move_history ?? []).map((line, idx) => (
