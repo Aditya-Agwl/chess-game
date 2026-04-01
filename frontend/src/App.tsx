@@ -8,6 +8,7 @@ import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "r
 import AppHeader from "./components/AppHeader";
 import AuthModal from "./components/modals/AuthModal";
 import GameOverModal from "./components/modals/GameOverModal";
+import ConnectFourPage from "./components/pages/ConnectFourPage";
 import HistoryPage from "./components/pages/HistoryPage";
 import HomePage from "./components/pages/HomePage";
 import MatchPage from "./components/pages/MatchPage";
@@ -904,13 +905,21 @@ function AppInner() {
           onGoPlay={() => navigate("/chess")}
           onGoSudoku={() => navigate("/sudoku")}
           onGoTicTacToe={() => navigate("/tictactoe")}
+          onGoConnectFour={() => navigate("/connect4")}
           onLogout={handleLogout}
         />
 
         <Routes>
           <Route
             path="/"
-            element={<HomePage onPlayChess={() => navigate("/chess")} onPlaySudoku={() => navigate("/sudoku")} onPlayTicTacToe={() => navigate("/tictactoe")} />}
+            element={(
+              <HomePage
+                onPlayChess={() => navigate("/chess")}
+                onPlaySudoku={() => navigate("/sudoku")}
+                onPlayTicTacToe={() => navigate("/tictactoe")}
+                onPlayConnectFour={() => navigate("/connect4")}
+              />
+            )}
           />
 
           <Route
@@ -957,6 +966,17 @@ function AppInner() {
             path="/tictactoe"
             element={(
               <TicTacToePage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+              />
+            )}
+          />
+
+          <Route
+            path="/connect4"
+            element={(
+              <ConnectFourPage
                 authToken={authToken}
                 apiBase={API_BASE}
                 onOpenHistory={openRecentGamesPage}
@@ -1014,11 +1034,13 @@ function AppInner() {
 
         <footer className="hint-line">
           {location.pathname === "/"
-            ? "Pick Chess, Sudoku, or Tic Tac Toe to jump into your game universe."
+            ? "Pick Chess, Sudoku, Tic Tac Toe, or Connect 4 to jump into your game universe."
             : location.pathname === "/sudoku"
               ? "Use the number pad to fill cells. Every completed puzzle is stored in your history."
             : location.pathname === "/tictactoe"
               ? "Play as X. Click any empty tile to make a move against the AI."
+              : location.pathname === "/connect4"
+                ? "Take turns dropping discs. First to connect four horizontally, vertically, or diagonally wins."
             : isSetup
               ? "Tip: choose Black if you want Stockfish to make the first move."
               : playerTurn

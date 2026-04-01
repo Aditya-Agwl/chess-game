@@ -25,6 +25,7 @@ app.add_middleware(
     allow_origins=[
         "https://d12uyfju5i7sl1.cloudfront.net",
         "https://chess.agarwaladi.co.in",
+        "https://games.agarwaladi.co.in",
         "https://chess-backend.agarwaladi.co.in",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -59,8 +60,9 @@ DifficultyLevel = Literal["easy", "medium", "hard"]
 PlayerColor = Literal["white", "black"]
 GameResult = Literal["win", "loss", "draw", "aborted"]
 TimeControl = Literal["3+2", "5+0", "10+0", "10+3", "15+10"]
-GameType = Literal["chess", "sudoku", "tictactoe"]
+GameType = Literal["chess", "sudoku", "tictactoe", "connect4"]
 TicTacToeMark = Literal["X", "O"]
+Connect4Disc = Literal["R", "Y"]
 
 DIFFICULTY_PROFILES = {
     "easy": {
@@ -126,6 +128,11 @@ class SaveGameRequest(BaseModel):
     tictactoe_winner: str | None = None
     tictactoe_move_history: list[str] = Field(default_factory=list)
     tictactoe_elapsed_seconds: int | None = None
+    connect4_board: str | None = None
+    connect4_player_disc: Connect4Disc | None = None
+    connect4_winner: Connect4Disc | None = None
+    connect4_move_history: list[str] = Field(default_factory=list)
+    connect4_elapsed_seconds: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -144,6 +151,12 @@ class TicTacToeBestMoveRequest(BaseModel):
     board: str
     difficulty: DifficultyLevel = "medium"
     ai_mark: TicTacToeMark = "O"
+
+
+class Connect4BestMoveRequest(BaseModel):
+    board: str
+    difficulty: DifficultyLevel = "medium"
+    ai_disc: Connect4Disc = "Y"
 
 
 def serialize_user(doc: dict) -> UserPublic:
@@ -181,6 +194,11 @@ def serialize_game(doc: dict) -> dict:
         "tictactoe_winner": doc.get("tictactoe_winner"),
         "tictactoe_move_history": doc.get("tictactoe_move_history", []),
         "tictactoe_elapsed_seconds": doc.get("tictactoe_elapsed_seconds"),
+        "connect4_board": doc.get("connect4_board"),
+        "connect4_player_disc": doc.get("connect4_player_disc"),
+        "connect4_winner": doc.get("connect4_winner"),
+        "connect4_move_history": doc.get("connect4_move_history", []),
+        "connect4_elapsed_seconds": doc.get("connect4_elapsed_seconds"),
         "started_at": doc.get("started_at"),
         "finished_at": doc.get("finished_at"),
         "created_at": doc.get("created_at"),
@@ -317,6 +335,145 @@ def pick_tictactoe_move(board: str, difficulty: DifficultyLevel, ai_mark: str) -
     if move is None:
         return random.choice(available)
     return move
+
+
+def connect4_board_from_string(board_str: str) -> list[list[str]]:
+    """Converts a 42-char string (6x7 board) to a 2D grid."""
+    if len(board_str) != 42:
+        raise HTTPException(status_code=400, detail="Invalid board: must be 42 characters")
+    cells = list(board_str)
+    if any(ch not in {"R", "Y", "-"} for ch in cells):
+        raise HTTPException(status_code=400, detail="Invalid board: must contain only R, Y, or -")
+    return [cells[i:i + 7] for i in range(0, 42, 7)]
+
+
+def connect4_board_to_string(board: list[list[str]]) -> str:
+    """Converts a 2D 6x7 grid back to a 42-char string."""
+    return "".join("".join(row) for row in board)
+
+
+def connect4_winner(board: list[list[str]]) -> str | None:
+    """Check if there's a winner (R, Y, or None)."""
+    ROWS, COLS = 6, 7
+    
+    for row in range(ROWS):
+        for col in range(COLS):
+            if board[row][col] == "-":
+                continue
+            disc = board[row][col]
+            # Horizontal
+            if col + 3 < COLS and all(board[row][col + i] == disc for i in range(4)):
+                return disc
+            # Vertical
+            if row + 3 < ROWS and all(board[row + i][col] == disc for i in range(4)):
+                return disc
+            # Diagonal /
+            if row + 3 < ROWS and col + 3 < COLS and all(board[row + i][col + i] == disc for i in range(4)):
+                return disc
+            # Diagonal \
+            if row + 3 < ROWS and col - 3 >= 0 and all(board[row + i][col - i] == disc for i in range(4)):
+                return disc
+    return None
+
+
+def connect4_available_columns(board: list[list[str]]) -> list[int]:
+    """Returns list of columns where a disc can be dropped."""
+    return [col for col in range(7) if board[0][col] == "-"]
+
+
+def connect4_drop_disc(board: list[list[str]], column: int, disc: str) -> list[list[str]] | None:
+    """Drop a disc in a column. Returns new board or None if column is full."""
+    if column < 0 or column >= 7:
+        return None
+    for row in range(5, -1, -1):
+        if board[row][column] == "-":
+            new_board = [list(row_data) for row_data in board]
+            new_board[row][column] = disc
+            return new_board
+    return None
+
+
+def connect4_minimax(
+    board: list[list[str]],
+    ai_disc: str,
+    human_disc: str,
+    depth: int,
+    maximizing: bool,
+) -> tuple[int, int | None]:
+    """Minimax with depth limit for Connect 4."""
+    winner = connect4_winner(board)
+    if winner == ai_disc:
+        return 10 + depth, None
+    if winner == human_disc:
+        return -10 - depth, None
+
+    available = connect4_available_columns(board)
+    if not available:
+        return 0, None
+
+    if depth <= 0:
+        return 0, None
+
+    if maximizing:
+        best_score = -999
+        best_move = available[0]
+        for col in available:
+            next_board = connect4_drop_disc(board, col, ai_disc)
+            if next_board is None:
+                continue
+            score, _ = connect4_minimax(next_board, ai_disc, human_disc, depth - 1, False)
+            if score > best_score:
+                best_score = score
+                best_move = col
+        return best_score, best_move
+
+    best_score = 999
+    best_move = available[0]
+    for col in available:
+        next_board = connect4_drop_disc(board, col, human_disc)
+        if next_board is None:
+            continue
+        score, _ = connect4_minimax(next_board, ai_disc, human_disc, depth - 1, True)
+        if score < best_score:
+            best_score = score
+            best_move = col
+    return best_score, best_move
+
+
+def pick_connect4_move(board_str: str, difficulty: DifficultyLevel, ai_disc: str) -> int:
+    """Pick the best Connect 4 move based on difficulty."""
+    board = connect4_board_from_string(board_str)
+    
+    if connect4_winner(board) is not None:
+        raise HTTPException(status_code=400, detail="Game is already finished")
+
+    available = connect4_available_columns(board)
+    if not available:
+        raise HTTPException(status_code=400, detail="Board is full")
+
+    human_disc = "Y" if ai_disc == "R" else "R"
+
+    if difficulty == "easy":
+        return random.choice(available)
+
+    if difficulty == "medium":
+        # Check if AI can win
+        for col in available:
+            next_board = connect4_drop_disc(board, col, ai_disc)
+            if next_board and connect4_winner(next_board) == ai_disc:
+                return col
+
+        # Check if human can win (block)
+        for col in available:
+            next_board = connect4_drop_disc(board, col, human_disc)
+            if next_board and connect4_winner(next_board) == human_disc:
+                return col
+
+        return random.choice(available)
+
+    # Hard: minimax with depth 6
+    _, move = connect4_minimax(board, ai_disc, human_disc, 6, True)
+    return move if move is not None else random.choice(available)
 
 
 def create_app_token(user_id: str) -> str:
@@ -473,6 +630,11 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="tictactoe_board is required for tictactoe games")
         if req.tictactoe_player_mark is None:
             raise HTTPException(status_code=400, detail="tictactoe_player_mark is required for tictactoe games")
+    if req.game_type == "connect4":
+        if req.connect4_board is None:
+            raise HTTPException(status_code=400, detail="connect4_board is required for connect4 games")
+        if req.connect4_player_disc is None:
+            raise HTTPException(status_code=400, detail="connect4_player_disc is required for connect4 games")
 
     now = datetime.now(timezone.utc)
     payload: dict = {
@@ -506,13 +668,21 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             "sudoku_elapsed_seconds": req.sudoku_elapsed_seconds,
             "sudoku_mistakes": req.sudoku_mistakes,
         })
-    else:
+    elif req.game_type == "tictactoe":
         payload.update({
             "tictactoe_board": req.tictactoe_board,
             "tictactoe_player_mark": req.tictactoe_player_mark,
             "tictactoe_winner": req.tictactoe_winner,
             "tictactoe_move_history": req.tictactoe_move_history,
             "tictactoe_elapsed_seconds": req.tictactoe_elapsed_seconds,
+        })
+    else:  # connect4
+        payload.update({
+            "connect4_board": req.connect4_board,
+            "connect4_player_disc": req.connect4_player_disc,
+            "connect4_winner": req.connect4_winner,
+            "connect4_move_history": req.connect4_move_history,
+            "connect4_elapsed_seconds": req.connect4_elapsed_seconds,
         })
     inserted = games_collection.insert_one(payload)
     return {"id": str(inserted.inserted_id)}
@@ -547,6 +717,15 @@ def tictactoe_best_move(req: TicTacToeBestMoveRequest):
     ai_index = pick_tictactoe_move(req.board, req.difficulty, req.ai_mark)
     return {
         "index": ai_index,
+        "difficulty": req.difficulty,
+    }
+
+
+@app.post("/connect4/best-move")
+def connect4_best_move(req: Connect4BestMoveRequest):
+    ai_column = pick_connect4_move(req.board, req.difficulty, req.ai_disc)
+    return {
+        "column": ai_column,
         "difficulty": req.difficulty,
     }
 

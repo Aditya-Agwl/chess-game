@@ -2,7 +2,7 @@ export type PlayerColor = "white" | "black";
 export type DifficultyLevel = "easy" | "medium" | "hard";
 export type GameResult = "win" | "loss" | "draw" | "aborted";
 export type TimeControl = "3+2" | "5+0" | "10+0" | "10+3" | "15+10";
-export type GameType = "chess" | "sudoku" | "tictactoe";
+export type GameType = "chess" | "sudoku" | "tictactoe" | "connect4";
 
 export type GameOverModalState = {
   visible: boolean;
@@ -42,5 +42,10 @@ export type SavedGame = {
   tictactoe_winner?: "X" | "O" | "draw";
   tictactoe_move_history?: string[];
   tictactoe_elapsed_seconds?: number;
+  connect4_board?: string;
+  connect4_player_disc?: "R" | "Y";
+  connect4_winner?: "R" | "Y" | "draw";
+  connect4_move_history?: string[];
+  connect4_elapsed_seconds?: number;
   finished_at?: string;
 };

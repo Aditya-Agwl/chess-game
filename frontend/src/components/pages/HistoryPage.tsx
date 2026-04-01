@@ -62,6 +62,7 @@ export default function HistoryPage({
   const sudokuPuzzleRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_puzzle) : null;
   const sudokuUserRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_user_grid) : null;
   const tttCells = selectedType === "tictactoe" ? (selectedGame?.tictactoe_board ?? "").split("") : [];
+  const connect4Cells = selectedType === "connect4" ? (selectedGame?.connect4_board ?? "").split("") : [];
 
   return (
     <section className="history-page">
@@ -83,6 +84,7 @@ export default function HistoryPage({
             <option value="chess">Chess</option>
             <option value="sudoku">Sudoku</option>
             <option value="tictactoe">Tic Tac Toe</option>
+            <option value="connect4">Connect 4</option>
           </select>
         </label>
         <label>
@@ -156,12 +158,18 @@ export default function HistoryPage({
                         <span>Duration: <strong>{g.sudoku_elapsed_seconds !== undefined ? `${g.sudoku_elapsed_seconds}s` : "-"}</strong></span>
                         <span>Mistakes: <strong>{g.sudoku_mistakes ?? "-"}</strong></span>
                       </>
-                    ) : (
+                    ) : (g.game_type ?? "chess") === "tictactoe" ? (
                       <>
                         <span>Side: <strong>{g.tictactoe_player_mark ?? "-"}</strong></span>
                         <span>Duration: <strong>{g.tictactoe_elapsed_seconds !== undefined ? `${g.tictactoe_elapsed_seconds}s` : "-"}</strong></span>
                         <span>Winner: <strong>{g.tictactoe_winner ?? "-"}</strong></span>
                         <span>Moves: <strong>{g.tictactoe_move_history?.length ?? 0}</strong></span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Duration: <strong>{g.connect4_elapsed_seconds !== undefined ? `${g.connect4_elapsed_seconds}s` : "-"}</strong></span>
+                        <span>Winner: <strong>{g.connect4_winner ?? "-"}</strong></span>
+                        <span>Moves: <strong>{g.connect4_move_history?.length ?? 0}</strong></span>
                       </>
                     )}
                   </div>
@@ -174,7 +182,15 @@ export default function HistoryPage({
         <aside className="history-detail-panel">
           {selectedGame ? (
             <>
-              <h3>{selectedType === "chess" ? "Move Sequence" : selectedType === "sudoku" ? "Sudoku Summary" : "Tic Tac Toe Summary"}</h3>
+              <h3>
+                {selectedType === "chess"
+                  ? "Move Sequence"
+                  : selectedType === "sudoku"
+                    ? "Sudoku Summary"
+                    : selectedType === "tictactoe"
+                      ? "Tic Tac Toe Summary"
+                      : "Connect 4 Summary"}
+              </h3>
               <div className="history-summary">
                 <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
                 <span>{formatDate(selectedGame.finished_at)}</span>
@@ -198,12 +214,18 @@ export default function HistoryPage({
                     <span>Sudoku Time: <strong>{selectedGame.sudoku_elapsed_seconds !== undefined ? `${selectedGame.sudoku_elapsed_seconds}s` : "-"}</strong></span>
                     <span>Sudoku Mistakes: <strong>{selectedGame.sudoku_mistakes ?? "-"}</strong></span>
                   </>
-                ) : (
+                ) : selectedType === "tictactoe" ? (
                   <>
                     <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
                     <span>Side: <strong>{selectedGame.tictactoe_player_mark ?? "-"}</strong></span>
                     <span>Tic Tac Toe Time: <strong>{selectedGame.tictactoe_elapsed_seconds !== undefined ? `${selectedGame.tictactoe_elapsed_seconds}s` : "-"}</strong></span>
                     <span>Winner: <strong>{selectedGame.tictactoe_winner ?? "-"}</strong></span>
+                  </>
+                ) : (
+                  <>
+                    <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
+                    <span>Connect 4 Time: <strong>{selectedGame.connect4_elapsed_seconds !== undefined ? `${selectedGame.connect4_elapsed_seconds}s` : "-"}</strong></span>
+                    <span>Winner: <strong>{selectedGame.connect4_winner ?? "-"}</strong></span>
                   </>
                 )}
               </div>
@@ -291,6 +313,28 @@ export default function HistoryPage({
                     <div className="move-lines">
                       {(selectedGame.tictactoe_move_history ?? []).map((line, idx) => (
                         <div className="move-line" key={`${selectedGame.id}-ttt-${idx}`}>{idx + 1}. {line}</div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+              {selectedType === "connect4" && (
+                <>
+                  {connect4Cells.length === 42 && (
+                    <div className="connect4-mini-board">
+                      {connect4Cells.map((cell, idx) => (
+                        <div className="connect4-mini-cell" key={`connect4-cell-${idx}`}>
+                          <span
+                            className={`connect4-mini-disc ${cell === "R" ? "is-red" : ""} ${cell === "Y" ? "is-yellow" : ""}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(selectedGame.connect4_move_history?.length ?? 0) > 0 && (
+                    <div className="move-lines">
+                      {(selectedGame.connect4_move_history ?? []).map((line, idx) => (
+                        <div className="move-line" key={`${selectedGame.id}-connect4-${idx}`}>{idx + 1}. {line}</div>
                       ))}
                     </div>
                   )}

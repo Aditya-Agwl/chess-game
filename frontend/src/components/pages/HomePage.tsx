@@ -5,9 +5,10 @@ type Props = {
   onPlayChess: () => void;
   onPlaySudoku: () => void;
   onPlayTicTacToe: () => void;
+  onPlayConnectFour: () => void;
 };
 
-export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe }: Props) {
+export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, onPlayConnectFour }: Props) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
   function onMove(event: MouseEvent<HTMLElement>) {
@@ -61,6 +62,11 @@ export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe }:
             <span className="universe-kicker">Arcade</span>
             <strong>Tic Tac Toe</strong>
             <span>Challenge the AI and track wins, losses, and draw streaks.</span>
+          </button>
+          <button className="universe-card universe-card-connect4" onClick={onPlayConnectFour}>
+            <span className="universe-kicker">Duel</span>
+            <strong>Connect 4</strong>
+            <span>Local two-player mode. Drop discs and connect four to win.</span>
           </button>
         </div>
       </div>

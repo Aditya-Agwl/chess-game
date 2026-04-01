@@ -397,6 +397,11 @@ body {
   border-color: #a8c9de;
 }
 
+.universe-card-connect4 {
+  background: linear-gradient(165deg, #fff2d8, #ffd9ad);
+  border-color: #e5b777;
+}
+
 .universe-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 14px 24px rgba(42, 30, 10, 0.16);
@@ -410,6 +415,83 @@ body {
 .tictactoe-page {
   display: grid;
   gap: 14px;
+}
+
+.connect4-page {
+  display: grid;
+  gap: 14px;
+}
+
+.connect4-board-shell {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 10px;
+}
+
+.connect4-drop-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.connect4-drop-btn {
+  border: 1px solid #e0c89f;
+  border-radius: 10px;
+  background: #fff8ea;
+  color: #3a2d1d;
+  padding: 8px;
+  font: 600 0.8rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+  cursor: pointer;
+}
+
+.connect4-drop-btn:hover:enabled {
+  background: #ffefce;
+}
+
+.connect4-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  border: 2px solid #8e7757;
+  border-radius: 12px;
+  padding: 10px;
+  background: linear-gradient(180deg, #2e7ab1, #1e5f8f);
+}
+
+.connect4-cell {
+  aspect-ratio: 1 / 1;
+  border: 0;
+  border-radius: 999px;
+  background: #d8edf9;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.14s ease;
+}
+
+.connect4-cell:hover:enabled {
+  transform: translateY(-1px);
+}
+
+.connect4-cell .connect4-disc {
+  width: 72%;
+  height: 72%;
+  border-radius: 999px;
+  background: #c6deee;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4);
+}
+
+.connect4-cell.is-red .connect4-disc {
+  background: radial-gradient(circle at 32% 30%, #ff958f, #c9362f 64%);
+}
+
+.connect4-cell.is-yellow .connect4-disc {
+  background: radial-gradient(circle at 32% 30%, #fff6ae, #deb338 64%);
+}
+
+.connect4-cell.is-last {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.78);
 }
 
 .ttt-grid {
@@ -1065,6 +1147,40 @@ body {
   font: 700 1.2rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
 }
 
+.connect4-mini-board {
+  width: min(260px, 100%);
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  border: 2px solid #8e7757;
+  border-radius: 8px;
+  padding: 6px;
+  background: linear-gradient(180deg, #2e7ab1, #1e5f8f);
+}
+
+.connect4-mini-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 999px;
+  background: #d8edf9;
+  display: grid;
+  place-items: center;
+}
+
+.connect4-mini-disc {
+  width: 72%;
+  height: 72%;
+  border-radius: 999px;
+  background: #c6deee;
+}
+
+.connect4-mini-disc.is-red {
+  background: radial-gradient(circle at 32% 30%, #ff958f, #c9362f 64%);
+}
+
+.connect4-mini-disc.is-yellow {
+  background: radial-gradient(circle at 32% 30%, #fff6ae, #deb338 64%);
+}
+
 .result-modal h2 {
   margin: 0;
   font-size: 1.5rem;
@@ -1197,6 +1313,10 @@ body {
 
   .sudoku-actions {
     grid-template-columns: 1fr;
+  }
+
+  .connect4-drop-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .history-layout {

@@ -9,6 +9,7 @@ type Props = {
   onGoPlay: () => void;
   onGoSudoku: () => void;
   onGoTicTacToe: () => void;
+  onGoConnectFour: () => void;
   onLogout: () => void;
 };
 
@@ -21,6 +22,7 @@ export default function AppHeader({
   onGoPlay,
   onGoSudoku,
   onGoTicTacToe,
+  onGoConnectFour,
   onLogout,
 }: Props) {
   return (
@@ -54,6 +56,7 @@ export default function AppHeader({
                 <button className="user-menu-item" onClick={onGoPlay}>Play Chess</button>
                 <button className="user-menu-item" onClick={onGoSudoku}>Play Sudoku</button>
                 <button className="user-menu-item" onClick={onGoTicTacToe}>Play Tic Tac Toe</button>
+                <button className="user-menu-item" onClick={onGoConnectFour}>Play Connect 4</button>
                 <button className="btn btn-light" onClick={onLogout}>Sign Out</button>
               </div>
             )}
