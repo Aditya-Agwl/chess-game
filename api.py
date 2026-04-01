@@ -60,9 +60,11 @@ DifficultyLevel = Literal["easy", "medium", "hard"]
 PlayerColor = Literal["white", "black"]
 GameResult = Literal["win", "loss", "draw", "aborted"]
 TimeControl = Literal["3+2", "5+0", "10+0", "10+3", "15+10"]
-GameType = Literal["chess", "sudoku", "tictactoe", "connect4"]
+GameType = Literal["chess", "sudoku", "tictactoe", "connect4", "othello"]
 TicTacToeMark = Literal["X", "O"]
 Connect4Disc = Literal["R", "Y"]
+OthelloDisc = Literal["B", "W"]
+DiscWinner = Literal["R", "Y", "B", "W", "draw"]
 
 DIFFICULTY_PROFILES = {
     "easy": {
@@ -130,9 +132,14 @@ class SaveGameRequest(BaseModel):
     tictactoe_elapsed_seconds: int | None = None
     connect4_board: str | None = None
     connect4_player_disc: Connect4Disc | None = None
-    connect4_winner: Connect4Disc | None = None
+    connect4_winner: DiscWinner | None = None
     connect4_move_history: list[str] = Field(default_factory=list)
     connect4_elapsed_seconds: int | None = None
+    othello_board: str | None = None
+    othello_player_disc: OthelloDisc | None = None
+    othello_winner: DiscWinner | None = None
+    othello_move_history: list[str] = Field(default_factory=list)
+    othello_elapsed_seconds: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -157,6 +164,12 @@ class Connect4BestMoveRequest(BaseModel):
     board: str
     difficulty: DifficultyLevel = "medium"
     ai_disc: Connect4Disc = "Y"
+
+
+class OthelloBestMoveRequest(BaseModel):
+    board: str
+    difficulty: DifficultyLevel = "medium"
+    ai_disc: OthelloDisc = "W"
 
 
 def serialize_user(doc: dict) -> UserPublic:
@@ -199,6 +212,11 @@ def serialize_game(doc: dict) -> dict:
         "connect4_winner": doc.get("connect4_winner"),
         "connect4_move_history": doc.get("connect4_move_history", []),
         "connect4_elapsed_seconds": doc.get("connect4_elapsed_seconds"),
+        "othello_board": doc.get("othello_board"),
+        "othello_player_disc": doc.get("othello_player_disc"),
+        "othello_winner": doc.get("othello_winner"),
+        "othello_move_history": doc.get("othello_move_history", []),
+        "othello_elapsed_seconds": doc.get("othello_elapsed_seconds"),
         "started_at": doc.get("started_at"),
         "finished_at": doc.get("finished_at"),
         "created_at": doc.get("created_at"),
@@ -476,6 +494,207 @@ def pick_connect4_move(board_str: str, difficulty: DifficultyLevel, ai_disc: str
     return move if move is not None else random.choice(available)
 
 
+def othello_board_from_string(board_str: str) -> list[list[str]]:
+    if len(board_str) != 64:
+        raise HTTPException(status_code=400, detail="Invalid board: must be 64 characters")
+    cells = list(board_str)
+    if any(ch not in {"B", "W", "-"} for ch in cells):
+        raise HTTPException(status_code=400, detail="Invalid board: must contain only B, W, or -")
+    return [cells[i:i + 8] for i in range(0, 64, 8)]
+
+
+def othello_opponent(disc: str) -> str:
+    return "W" if disc == "B" else "B"
+
+
+def othello_in_bounds(row: int, col: int) -> bool:
+    return 0 <= row < 8 and 0 <= col < 8
+
+
+def othello_flips_for_move(board: list[list[str]], row: int, col: int, disc: str) -> list[tuple[int, int]]:
+    if not othello_in_bounds(row, col) or board[row][col] != "-":
+        return []
+
+    opponent = othello_opponent(disc)
+    directions = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),           (0, 1),
+        (1, -1),  (1, 0),  (1, 1),
+    ]
+    flips: list[tuple[int, int]] = []
+
+    for dr, dc in directions:
+        r = row + dr
+        c = col + dc
+        captured: list[tuple[int, int]] = []
+        while othello_in_bounds(r, c) and board[r][c] == opponent:
+            captured.append((r, c))
+            r += dr
+            c += dc
+
+        if captured and othello_in_bounds(r, c) and board[r][c] == disc:
+            flips.extend(captured)
+
+    return flips
+
+
+def othello_valid_moves(board: list[list[str]], disc: str) -> list[tuple[int, int]]:
+    moves: list[tuple[int, int]] = []
+    for row in range(8):
+        for col in range(8):
+            if othello_flips_for_move(board, row, col, disc):
+                moves.append((row, col))
+    return moves
+
+
+def othello_apply_move(board: list[list[str]], row: int, col: int, disc: str) -> list[list[str]] | None:
+    flips = othello_flips_for_move(board, row, col, disc)
+    if not flips:
+        return None
+
+    next_board = [list(line) for line in board]
+    next_board[row][col] = disc
+    for r, c in flips:
+        next_board[r][c] = disc
+    return next_board
+
+
+def othello_count(board: list[list[str]], disc: str) -> int:
+    return sum(1 for row in board for cell in row if cell == disc)
+
+
+def othello_is_terminal(board: list[list[str]]) -> bool:
+    return not othello_valid_moves(board, "B") and not othello_valid_moves(board, "W")
+
+
+def othello_winner(board: list[list[str]]) -> str | None:
+    if not othello_is_terminal(board):
+        return None
+    black = othello_count(board, "B")
+    white = othello_count(board, "W")
+    if black == white:
+        return "draw"
+    return "B" if black > white else "W"
+
+
+OTHELLO_WEIGHTS = [
+    [120, -20, 20, 5, 5, 20, -20, 120],
+    [-20, -40, -5, -5, -5, -5, -40, -20],
+    [20, -5, 15, 3, 3, 15, -5, 20],
+    [5, -5, 3, 3, 3, 3, -5, 5],
+    [5, -5, 3, 3, 3, 3, -5, 5],
+    [20, -5, 15, 3, 3, 15, -5, 20],
+    [-20, -40, -5, -5, -5, -5, -40, -20],
+    [120, -20, 20, 5, 5, 20, -20, 120],
+]
+
+
+def othello_evaluate(board: list[list[str]], ai_disc: str) -> int:
+    human_disc = othello_opponent(ai_disc)
+
+    ai_tiles = othello_count(board, ai_disc)
+    human_tiles = othello_count(board, human_disc)
+    piece_score = (ai_tiles - human_tiles) * 2
+
+    ai_mobility = len(othello_valid_moves(board, ai_disc))
+    human_mobility = len(othello_valid_moves(board, human_disc))
+    mobility_score = (ai_mobility - human_mobility) * 5
+
+    positional_score = 0
+    for row in range(8):
+        for col in range(8):
+            if board[row][col] == ai_disc:
+                positional_score += OTHELLO_WEIGHTS[row][col]
+            elif board[row][col] == human_disc:
+                positional_score -= OTHELLO_WEIGHTS[row][col]
+
+    return piece_score + mobility_score + positional_score
+
+
+def othello_minimax(
+    board: list[list[str]],
+    ai_disc: str,
+    current_disc: str,
+    depth: int,
+    alpha: int,
+    beta: int,
+) -> tuple[int, tuple[int, int] | None]:
+    if depth <= 0 or othello_is_terminal(board):
+        winner = othello_winner(board)
+        if winner == ai_disc:
+            return 10_000 + depth, None
+        if winner == othello_opponent(ai_disc):
+            return -10_000 - depth, None
+        if winner == "draw":
+            return 0, None
+        return othello_evaluate(board, ai_disc), None
+
+    moves = othello_valid_moves(board, current_disc)
+    if not moves:
+        return othello_minimax(board, ai_disc, othello_opponent(current_disc), depth - 1, alpha, beta)
+
+    maximizing = current_disc == ai_disc
+    best_move: tuple[int, int] | None = None
+
+    if maximizing:
+        best_score = -1_000_000
+        for row, col in moves:
+            next_board = othello_apply_move(board, row, col, current_disc)
+            if next_board is None:
+                continue
+            score, _ = othello_minimax(next_board, ai_disc, othello_opponent(current_disc), depth - 1, alpha, beta)
+            if score > best_score:
+                best_score = score
+                best_move = (row, col)
+            alpha = max(alpha, best_score)
+            if beta <= alpha:
+                break
+        return best_score, best_move
+
+    best_score = 1_000_000
+    for row, col in moves:
+        next_board = othello_apply_move(board, row, col, current_disc)
+        if next_board is None:
+            continue
+        score, _ = othello_minimax(next_board, ai_disc, othello_opponent(current_disc), depth - 1, alpha, beta)
+        if score < best_score:
+            best_score = score
+            best_move = (row, col)
+        beta = min(beta, best_score)
+        if beta <= alpha:
+            break
+    return best_score, best_move
+
+
+def pick_othello_move(board_str: str, difficulty: DifficultyLevel, ai_disc: str) -> dict:
+    board = othello_board_from_string(board_str)
+    moves = othello_valid_moves(board, ai_disc)
+
+    if not moves:
+        return {"pass": True}
+
+    if difficulty == "easy":
+        row, col = random.choice(moves)
+        return {"row": row, "col": col, "pass": False}
+
+    if difficulty == "medium":
+        best_flips = -1
+        best_move = moves[0]
+        for row, col in moves:
+            flips = len(othello_flips_for_move(board, row, col, ai_disc))
+            if flips > best_flips:
+                best_flips = flips
+                best_move = (row, col)
+        return {"row": best_move[0], "col": best_move[1], "pass": False}
+
+    # Hard: alpha-beta minimax with positional + mobility evaluation.
+    _, best_move = othello_minimax(board, ai_disc, ai_disc, 5, -1_000_000, 1_000_000)
+    if best_move is None:
+        row, col = random.choice(moves)
+        return {"row": row, "col": col, "pass": False}
+    return {"row": best_move[0], "col": best_move[1], "pass": False}
+
+
 def create_app_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
@@ -635,6 +854,11 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="connect4_board is required for connect4 games")
         if req.connect4_player_disc is None:
             raise HTTPException(status_code=400, detail="connect4_player_disc is required for connect4 games")
+    if req.game_type == "othello":
+        if req.othello_board is None:
+            raise HTTPException(status_code=400, detail="othello_board is required for othello games")
+        if req.othello_player_disc is None:
+            raise HTTPException(status_code=400, detail="othello_player_disc is required for othello games")
 
     now = datetime.now(timezone.utc)
     payload: dict = {
@@ -676,13 +900,21 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             "tictactoe_move_history": req.tictactoe_move_history,
             "tictactoe_elapsed_seconds": req.tictactoe_elapsed_seconds,
         })
-    else:  # connect4
+    elif req.game_type == "connect4":
         payload.update({
             "connect4_board": req.connect4_board,
             "connect4_player_disc": req.connect4_player_disc,
             "connect4_winner": req.connect4_winner,
             "connect4_move_history": req.connect4_move_history,
             "connect4_elapsed_seconds": req.connect4_elapsed_seconds,
+        })
+    else:  # othello
+        payload.update({
+            "othello_board": req.othello_board,
+            "othello_player_disc": req.othello_player_disc,
+            "othello_winner": req.othello_winner,
+            "othello_move_history": req.othello_move_history,
+            "othello_elapsed_seconds": req.othello_elapsed_seconds,
         })
     inserted = games_collection.insert_one(payload)
     return {"id": str(inserted.inserted_id)}
@@ -726,6 +958,14 @@ def connect4_best_move(req: Connect4BestMoveRequest):
     ai_column = pick_connect4_move(req.board, req.difficulty, req.ai_disc)
     return {
         "column": ai_column,
+        "difficulty": req.difficulty,
+    }
+
+
+@app.post("/othello/best-move")
+def othello_best_move(req: OthelloBestMoveRequest):
+    return {
+        **pick_othello_move(req.board, req.difficulty, req.ai_disc),
         "difficulty": req.difficulty,
     }
 

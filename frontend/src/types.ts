@@ -2,7 +2,7 @@ export type PlayerColor = "white" | "black";
 export type DifficultyLevel = "easy" | "medium" | "hard";
 export type GameResult = "win" | "loss" | "draw" | "aborted";
 export type TimeControl = "3+2" | "5+0" | "10+0" | "10+3" | "15+10";
-export type GameType = "chess" | "sudoku" | "tictactoe" | "connect4";
+export type GameType = "chess" | "sudoku" | "tictactoe" | "connect4" | "othello";
 
 export type GameOverModalState = {
   visible: boolean;
@@ -47,5 +47,10 @@ export type SavedGame = {
   connect4_winner?: "R" | "Y" | "draw";
   connect4_move_history?: string[];
   connect4_elapsed_seconds?: number;
+  othello_board?: string;
+  othello_player_disc?: "B" | "W";
+  othello_winner?: "B" | "W" | "draw";
+  othello_move_history?: string[];
+  othello_elapsed_seconds?: number;
   finished_at?: string;
 };

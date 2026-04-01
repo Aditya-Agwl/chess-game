@@ -63,6 +63,7 @@ export default function HistoryPage({
   const sudokuUserRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_user_grid) : null;
   const tttCells = selectedType === "tictactoe" ? (selectedGame?.tictactoe_board ?? "").split("") : [];
   const connect4Cells = selectedType === "connect4" ? (selectedGame?.connect4_board ?? "").split("") : [];
+  const othelloCells = selectedType === "othello" ? (selectedGame?.othello_board ?? "").split("") : [];
 
   return (
     <section className="history-page">
@@ -85,6 +86,7 @@ export default function HistoryPage({
             <option value="sudoku">Sudoku</option>
             <option value="tictactoe">Tic Tac Toe</option>
             <option value="connect4">Connect 4</option>
+            <option value="othello">Othello</option>
           </select>
         </label>
         <label>
@@ -165,11 +167,17 @@ export default function HistoryPage({
                         <span>Winner: <strong>{g.tictactoe_winner ?? "-"}</strong></span>
                         <span>Moves: <strong>{g.tictactoe_move_history?.length ?? 0}</strong></span>
                       </>
-                    ) : (
+                    ) : (g.game_type ?? "chess") === "connect4" ? (
                       <>
                         <span>Duration: <strong>{g.connect4_elapsed_seconds !== undefined ? `${g.connect4_elapsed_seconds}s` : "-"}</strong></span>
                         <span>Winner: <strong>{g.connect4_winner ?? "-"}</strong></span>
                         <span>Moves: <strong>{g.connect4_move_history?.length ?? 0}</strong></span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Duration: <strong>{g.othello_elapsed_seconds !== undefined ? `${g.othello_elapsed_seconds}s` : "-"}</strong></span>
+                        <span>Winner: <strong>{g.othello_winner ?? "-"}</strong></span>
+                        <span>Moves: <strong>{g.othello_move_history?.length ?? 0}</strong></span>
                       </>
                     )}
                   </div>
@@ -189,7 +197,9 @@ export default function HistoryPage({
                     ? "Sudoku Summary"
                     : selectedType === "tictactoe"
                       ? "Tic Tac Toe Summary"
-                      : "Connect 4 Summary"}
+                      : selectedType === "connect4"
+                        ? "Connect 4 Summary"
+                        : "Othello Summary"}
               </h3>
               <div className="history-summary">
                 <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
@@ -221,11 +231,17 @@ export default function HistoryPage({
                     <span>Tic Tac Toe Time: <strong>{selectedGame.tictactoe_elapsed_seconds !== undefined ? `${selectedGame.tictactoe_elapsed_seconds}s` : "-"}</strong></span>
                     <span>Winner: <strong>{selectedGame.tictactoe_winner ?? "-"}</strong></span>
                   </>
-                ) : (
+                ) : selectedType === "connect4" ? (
                   <>
                     <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
                     <span>Connect 4 Time: <strong>{selectedGame.connect4_elapsed_seconds !== undefined ? `${selectedGame.connect4_elapsed_seconds}s` : "-"}</strong></span>
                     <span>Winner: <strong>{selectedGame.connect4_winner ?? "-"}</strong></span>
+                  </>
+                ) : (
+                  <>
+                    <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
+                    <span>Othello Time: <strong>{selectedGame.othello_elapsed_seconds !== undefined ? `${selectedGame.othello_elapsed_seconds}s` : "-"}</strong></span>
+                    <span>Winner: <strong>{selectedGame.othello_winner ?? "-"}</strong></span>
                   </>
                 )}
               </div>
@@ -335,6 +351,28 @@ export default function HistoryPage({
                     <div className="move-lines">
                       {(selectedGame.connect4_move_history ?? []).map((line, idx) => (
                         <div className="move-line" key={`${selectedGame.id}-connect4-${idx}`}>{idx + 1}. {line}</div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+              {selectedType === "othello" && (
+                <>
+                  {othelloCells.length === 64 && (
+                    <div className="othello-mini-board">
+                      {othelloCells.map((cell, idx) => (
+                        <div className="othello-mini-cell" key={`othello-cell-${idx}`}>
+                          <span
+                            className={`othello-mini-disc ${cell === "B" ? "is-black" : ""} ${cell === "W" ? "is-white" : ""}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(selectedGame.othello_move_history?.length ?? 0) > 0 && (
+                    <div className="move-lines">
+                      {(selectedGame.othello_move_history ?? []).map((line, idx) => (
+                        <div className="move-line" key={`${selectedGame.id}-othello-${idx}`}>{idx + 1}. {line}</div>
                       ))}
                     </div>
                   )}

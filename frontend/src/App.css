@@ -402,6 +402,11 @@ body {
   border-color: #e5b777;
 }
 
+.universe-card-othello {
+  background: linear-gradient(165deg, #ebf3e3, #cfe3bc);
+  border-color: #9eb985;
+}
+
 .universe-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 14px 24px rgba(42, 30, 10, 0.16);
@@ -420,6 +425,126 @@ body {
 .connect4-page {
   display: grid;
   gap: 14px;
+}
+
+.othello-page {
+  display: grid;
+  gap: 14px;
+}
+.othello-settings-card {
+  width: min(700px, 100%);
+  display: grid;
+  gap: 14px;
+}
+.othello-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.othello-step-pill {
+  border: 1px solid #d8c3a2;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: #fff5e3;
+  color: #5f4d35;
+  font: 700 0.74rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.othello-mode-grid {
+  margin-top: 4px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.othello-mode-card {
+  border: 1px solid #d7c2a1;
+  border-radius: 16px;
+  background: linear-gradient(165deg, #fff7e8, #f2dfba);
+  color: #302416;
+  padding: 16px;
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.othello-mode-card strong {
+  font-size: 1.04rem;
+}
+.othello-mode-card span {
+  color: #655948;
+  font-size: 0.86rem;
+}
+.othello-mode-card.is-ai {
+  background: linear-gradient(165deg, #e8f3ed, #d3e8d7);
+  border-color: #a8c9b2;
+}
+.othello-mode-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 24px rgba(42, 30, 10, 0.16);
+}
+.othello-settings-panel {
+  border: 1px solid #e6d4b7;
+  border-radius: 16px;
+  background: linear-gradient(170deg, rgba(255, 251, 244, 0.94), rgba(248, 239, 226, 0.9));
+  padding: 14px;
+}
+.othello-settings-meta {
+  margin-top: 0;
+}
+.othello-settings-actions {
+  grid-template-columns: 1fr 1.2fr;
+}
+.othello-settings-footer {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.othello-board {
+  width: min(560px, 100%);
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  border: 2px solid #5f6f48;
+  border-radius: 12px;
+  padding: 8px;
+  background: linear-gradient(180deg, #2f7f4e, #215f39);
+}
+
+.othello-cell {
+  aspect-ratio: 1 / 1;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(16, 48, 28, 0.34);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.othello-cell.is-valid {
+  box-shadow: inset 0 0 0 2px rgba(235, 248, 220, 0.86);
+}
+
+.othello-cell.is-last {
+  box-shadow: inset 0 0 0 3px rgba(255, 209, 93, 0.86);
+}
+
+.othello-cell .othello-disc {
+  width: 76%;
+  height: 76%;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.othello-cell.is-black .othello-disc {
+  background: radial-gradient(circle at 30% 30%, #68747f, #11181f 66%);
+}
+
+.othello-cell.is-white .othello-disc {
+  background: radial-gradient(circle at 30% 30%, #ffffff, #cfd8e1 66%);
 }
 
 .connect4-board-shell {
@@ -1181,6 +1306,40 @@ body {
   background: radial-gradient(circle at 32% 30%, #fff6ae, #deb338 64%);
 }
 
+.othello-mini-board {
+  width: min(280px, 100%);
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 3px;
+  border: 2px solid #5f6f48;
+  border-radius: 8px;
+  padding: 6px;
+  background: linear-gradient(180deg, #2f7f4e, #215f39);
+}
+
+.othello-mini-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  background: rgba(16, 48, 28, 0.34);
+  display: grid;
+  place-items: center;
+}
+
+.othello-mini-disc {
+  width: 74%;
+  height: 74%;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.othello-mini-disc.is-black {
+  background: radial-gradient(circle at 30% 30%, #68747f, #11181f 66%);
+}
+
+.othello-mini-disc.is-white {
+  background: radial-gradient(circle at 30% 30%, #ffffff, #cfd8e1 66%);
+}
+
 .result-modal h2 {
   margin: 0;
   font-size: 1.5rem;
@@ -1261,6 +1420,12 @@ body {
     padding: 20px 14px 18px;
   }
 
+  .othello-mode-grid {
+    grid-template-columns: 1fr;
+  }
+  .othello-settings-actions {
+    grid-template-columns: 1fr;
+  }
   .topbar {
     flex-direction: column;
     align-items: stretch;

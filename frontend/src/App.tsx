@@ -12,6 +12,7 @@ import ConnectFourPage from "./components/pages/ConnectFourPage";
 import HistoryPage from "./components/pages/HistoryPage";
 import HomePage from "./components/pages/HomePage";
 import MatchPage from "./components/pages/MatchPage";
+import OthelloPage from "./components/pages/OthelloPage";
 import PlaySetupPage from "./components/pages/PlaySetupPage";
 import SudokuPage from "./components/pages/SudokuPage";
 import TicTacToePage from "./components/pages/TicTacToePage";
@@ -906,6 +907,7 @@ function AppInner() {
           onGoSudoku={() => navigate("/sudoku")}
           onGoTicTacToe={() => navigate("/tictactoe")}
           onGoConnectFour={() => navigate("/connect4")}
+          onGoOthello={() => navigate("/othello/settings/mode")}
           onLogout={handleLogout}
         />
 
@@ -918,6 +920,7 @@ function AppInner() {
                 onPlaySudoku={() => navigate("/sudoku")}
                 onPlayTicTacToe={() => navigate("/tictactoe")}
                 onPlayConnectFour={() => navigate("/connect4")}
+                onPlayOthello={() => navigate("/othello/settings/mode")}
               />
             )}
           />
@@ -985,6 +988,63 @@ function AppInner() {
           />
 
           <Route
+            path="/othello/settings"
+            element={(
+              <Navigate to="/othello/settings/mode" replace />
+            )}
+          />
+
+          <Route
+            path="/othello/settings/mode"
+            element={(
+              <OthelloPage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="settings"
+              />
+            )}
+          />
+
+          <Route
+            path="/othello/settings/game"
+            element={(
+              <OthelloPage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="settings"
+              />
+            )}
+          />
+
+          <Route
+            path="/othello/play"
+            element={(
+              <OthelloPage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="play"
+              />
+            )}
+          />
+
+          <Route
+            path="/othello"
+            element={(
+              <Navigate to="/othello/settings" replace />
+            )}
+          />
+
+          <Route
+            path="/othello/*"
+            element={(
+              <Navigate to="/othello/settings/mode" replace />
+            )}
+          />
+
+          <Route
             path="/chess"
             element={(
               <PlaySetupPage
@@ -1034,13 +1094,15 @@ function AppInner() {
 
         <footer className="hint-line">
           {location.pathname === "/"
-            ? "Pick Chess, Sudoku, Tic Tac Toe, or Connect 4 to jump into your game universe."
+            ? "Pick Chess, Sudoku, Tic Tac Toe, Connect 4, or Othello to jump into your game universe."
             : location.pathname === "/sudoku"
               ? "Use the number pad to fill cells. Every completed puzzle is stored in your history."
             : location.pathname === "/tictactoe"
               ? "Play as X. Click any empty tile to make a move against the AI."
               : location.pathname === "/connect4"
                 ? "Take turns dropping discs. First to connect four horizontally, vertically, or diagonally wins."
+            : location.pathname.startsWith("/othello")
+                ? "Corners matter: every move can flip lines. If no legal move exists, pass turn."
             : isSetup
               ? "Tip: choose Black if you want Stockfish to make the first move."
               : playerTurn

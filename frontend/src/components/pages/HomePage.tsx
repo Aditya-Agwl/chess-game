@@ -6,9 +6,10 @@ type Props = {
   onPlaySudoku: () => void;
   onPlayTicTacToe: () => void;
   onPlayConnectFour: () => void;
+  onPlayOthello: () => void;
 };
 
-export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, onPlayConnectFour }: Props) {
+export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, onPlayConnectFour, onPlayOthello }: Props) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
   function onMove(event: MouseEvent<HTMLElement>) {
@@ -67,6 +68,11 @@ export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, o
             <span className="universe-kicker">Duel</span>
             <strong>Connect 4</strong>
             <span>Local two-player mode. Drop discs and connect four to win.</span>
+          </button>
+          <button className="universe-card universe-card-othello" onClick={onPlayOthello}>
+            <span className="universe-kicker">Tactics</span>
+            <strong>Othello</strong>
+            <span>Play local or versus smart AI with legal-move guidance and post-game history.</span>
           </button>
         </div>
       </div>
