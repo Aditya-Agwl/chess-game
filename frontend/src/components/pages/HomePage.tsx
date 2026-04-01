@@ -2,11 +2,12 @@ import { useState } from "react";
 import type { MouseEvent } from "react";
 
 type Props = {
-  onPlay: () => void;
-  onAnalyze: () => void;
+  onPlayChess: () => void;
+  onPlaySudoku: () => void;
+  onPlayTicTacToe: () => void;
 };
 
-export default function HomePage({ onPlay, onAnalyze }: Props) {
+export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe }: Props) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
   function onMove(event: MouseEvent<HTMLElement>) {
@@ -43,11 +44,24 @@ export default function HomePage({ onPlay, onAnalyze }: Props) {
       </div>
 
       <div className="setup-card mode-card home-card">
-        <h2>Choose Your Mode</h2>
-        <p>Play now or review your recent games.</p>
-        <div className="mode-actions mode-actions-vertical">
-          <button className="btn btn-start" onClick={onPlay}>Play With Computer</button>
-          <button className="btn btn-dark" onClick={onAnalyze}>Analyze Recent Games</button>
+        <h2>Choose Your Universe</h2>
+        <p>Enter Chess Command or Sudoku Arena.</p>
+        <div className="game-universe-grid">
+          <button className="universe-card" onClick={onPlayChess}>
+            <span className="universe-kicker">Strategy</span>
+            <strong>Chess</strong>
+            <span>Play against the engine with time controls and analysis history.</span>
+          </button>
+          <button className="universe-card universe-card-sudoku" onClick={onPlaySudoku}>
+            <span className="universe-kicker">Logic</span>
+            <strong>Sudoku</strong>
+            <span>Solve generated puzzles with timer and mistakes tracking.</span>
+          </button>
+          <button className="universe-card universe-card-ttt" onClick={onPlayTicTacToe}>
+            <span className="universe-kicker">Arcade</span>
+            <strong>Tic Tac Toe</strong>
+            <span>Challenge the AI and track wins, losses, and draw streaks.</span>
+          </button>
         </div>
       </div>
     </section>

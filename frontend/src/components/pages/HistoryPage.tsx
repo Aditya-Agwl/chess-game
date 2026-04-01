@@ -1,10 +1,11 @@
-import type { DifficultyLevel, GameResult, PlayerColor, SavedGame } from "../../types";
+import type { DifficultyLevel, GameResult, GameType, PlayerColor, SavedGame } from "../../types";
 
 type Props = {
   gamesLoading: boolean;
   gamesError: string;
   filteredGames: SavedGame[];
   selectedGame: SavedGame | null;
+  filterGameType: "all" | GameType;
   filterResult: "all" | GameResult;
   filterDifficulty: "all" | DifficultyLevel;
   filterColor: "all" | PlayerColor;
@@ -15,6 +16,7 @@ type Props = {
   toLabel: (value: string) => string;
   onRefresh: () => void;
   onPlayNow: () => void;
+  onSetFilterGameType: (value: "all" | GameType) => void;
   onSetFilterResult: (value: "all" | GameResult) => void;
   onSetFilterDifficulty: (value: "all" | DifficultyLevel) => void;
   onSetFilterColor: (value: "all" | PlayerColor) => void;
@@ -27,6 +29,7 @@ export default function HistoryPage({
   gamesError,
   filteredGames,
   selectedGame,
+  filterGameType,
   filterResult,
   filterDifficulty,
   filterColor,
@@ -37,12 +40,29 @@ export default function HistoryPage({
   toLabel,
   onRefresh,
   onPlayNow,
+  onSetFilterGameType,
   onSetFilterResult,
   onSetFilterDifficulty,
   onSetFilterColor,
   onSetSearchText,
   onSelectGame,
 }: Props) {
+  function toSudokuRows(grid?: string): string[] | null {
+    if (!grid || grid.length !== 81) return null;
+    const safe = grid.replace(/[^0-9]/g, "");
+    if (safe.length !== 81) return null;
+    const rows: string[] = [];
+    for (let i = 0; i < 81; i += 9) {
+      rows.push(safe.slice(i, i + 9));
+    }
+    return rows;
+  }
+
+  const selectedType = selectedGame?.game_type ?? "chess";
+  const sudokuPuzzleRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_puzzle) : null;
+  const sudokuUserRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_user_grid) : null;
+  const tttCells = selectedType === "tictactoe" ? (selectedGame?.tictactoe_board ?? "").split("") : [];
+
   return (
     <section className="history-page">
       <div className="history-toolbar">
@@ -56,6 +76,15 @@ export default function HistoryPage({
       </div>
 
       <div className="history-filters">
+        <label>
+          Game
+          <select value={filterGameType} onChange={(e) => onSetFilterGameType(e.target.value as "all" | GameType)}>
+            <option value="all">All</option>
+            <option value="chess">Chess</option>
+            <option value="sudoku">Sudoku</option>
+            <option value="tictactoe">Tic Tac Toe</option>
+          </select>
+        </label>
         <label>
           Result
           <select value={filterResult} onChange={(e) => onSetFilterResult(e.target.value as "all" | GameResult)}>
@@ -114,10 +143,27 @@ export default function HistoryPage({
                     <span>{formatDate(g.finished_at)}</span>
                   </div>
                   <div className="history-meta">
+                    <span>Game: <strong>{toLabel(g.game_type ?? "chess")}</strong></span>
                     <span>Difficulty: <strong>{toLabel(g.difficulty)}</strong></span>
-                    <span>Side: <strong>{toLabel(g.player_color)}</strong></span>
-                    <span>Time: <strong>{g.time_control ?? "-"}</strong></span>
-                    <span>Moves: <strong>{g.move_history?.length ?? 0}</strong></span>
+                    {(g.game_type ?? "chess") === "chess" ? (
+                      <>
+                        <span>Side: <strong>{g.player_color ? toLabel(g.player_color) : "-"}</strong></span>
+                        <span>Time: <strong>{g.time_control ?? "-"}</strong></span>
+                        <span>Moves: <strong>{g.move_history?.length ?? 0}</strong></span>
+                      </>
+                    ) : (g.game_type ?? "chess") === "sudoku" ? (
+                      <>
+                        <span>Duration: <strong>{g.sudoku_elapsed_seconds !== undefined ? `${g.sudoku_elapsed_seconds}s` : "-"}</strong></span>
+                        <span>Mistakes: <strong>{g.sudoku_mistakes ?? "-"}</strong></span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Side: <strong>{g.tictactoe_player_mark ?? "-"}</strong></span>
+                        <span>Duration: <strong>{g.tictactoe_elapsed_seconds !== undefined ? `${g.tictactoe_elapsed_seconds}s` : "-"}</strong></span>
+                        <span>Winner: <strong>{g.tictactoe_winner ?? "-"}</strong></span>
+                        <span>Moves: <strong>{g.tictactoe_move_history?.length ?? 0}</strong></span>
+                      </>
+                    )}
                   </div>
                 </button>
               ))}
@@ -128,37 +174,127 @@ export default function HistoryPage({
         <aside className="history-detail-panel">
           {selectedGame ? (
             <>
-              <h3>Move Sequence</h3>
+              <h3>{selectedType === "chess" ? "Move Sequence" : selectedType === "sudoku" ? "Sudoku Summary" : "Tic Tac Toe Summary"}</h3>
               <div className="history-summary">
                 <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
                 <span>{formatDate(selectedGame.finished_at)}</span>
               </div>
               <div className="history-meta">
-                <span>Time Control: <strong>{selectedGame.time_control ?? "-"}</strong></span>
-                <span>
-                  Clock Left: <strong>
-                    {selectedGame.white_time_left_ms !== undefined && selectedGame.black_time_left_ms !== undefined
-                      ? `${Math.max(0, Math.ceil(selectedGame.white_time_left_ms / 1000))}s / ${Math.max(0, Math.ceil(selectedGame.black_time_left_ms / 1000))}s`
-                      : "-"}
-                  </strong>
-                </span>
+                <span>Game: <strong>{toLabel(selectedType)}</strong></span>
+                {selectedType === "chess" ? (
+                  <>
+                    <span>Side: <strong>{selectedGame.player_color ? toLabel(selectedGame.player_color) : "-"}</strong></span>
+                    <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
+                    <span>Time Control: <strong>{selectedGame.time_control ?? "-"}</strong></span>
+                    <span>Clock Left: <strong>
+                      {selectedGame.white_time_left_ms !== undefined && selectedGame.black_time_left_ms !== undefined
+                        ? `${Math.max(0, Math.ceil(selectedGame.white_time_left_ms / 1000))}s / ${Math.max(0, Math.ceil(selectedGame.black_time_left_ms / 1000))}s`
+                        : "-"}
+                    </strong></span>
+                  </>
+                ) : selectedType === "sudoku" ? (
+                  <>
+                    <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
+                    <span>Sudoku Time: <strong>{selectedGame.sudoku_elapsed_seconds !== undefined ? `${selectedGame.sudoku_elapsed_seconds}s` : "-"}</strong></span>
+                    <span>Sudoku Mistakes: <strong>{selectedGame.sudoku_mistakes ?? "-"}</strong></span>
+                  </>
+                ) : (
+                  <>
+                    <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
+                    <span>Side: <strong>{selectedGame.tictactoe_player_mark ?? "-"}</strong></span>
+                    <span>Tic Tac Toe Time: <strong>{selectedGame.tictactoe_elapsed_seconds !== undefined ? `${selectedGame.tictactoe_elapsed_seconds}s` : "-"}</strong></span>
+                    <span>Winner: <strong>{selectedGame.tictactoe_winner ?? "-"}</strong></span>
+                  </>
+                )}
               </div>
-              <div className="move-lines">
-                {movePairs(selectedGame.move_history ?? []).map((line, idx) => (
-                  <div className="move-line" key={`${selectedGame.id}-${idx}`}>{line}</div>
-                ))}
-              </div>
-              {selectedGame.pgn && (
+              {selectedType === "chess" && (selectedGame.move_history?.length ?? 0) > 0 && (
+                <div className="move-lines">
+                  {movePairs(selectedGame.move_history ?? []).map((line, idx) => (
+                    <div className="move-line" key={`${selectedGame.id}-${idx}`}>{line}</div>
+                  ))}
+                </div>
+              )}
+              {selectedType === "chess" && selectedGame.pgn && (
                 <div className="fen-block">
                   <span>PGN</span>
                   <code>{selectedGame.pgn}</code>
                 </div>
               )}
-              {selectedGame.final_fen && (
+              {selectedType === "chess" && selectedGame.final_fen && (
                 <div className="fen-block">
                   <span>Final FEN</span>
                   <code>{selectedGame.final_fen}</code>
                 </div>
+              )}
+              {selectedType === "sudoku" && (
+                <div className="sudoku-mini-wrap">
+                  {sudokuPuzzleRows && (
+                    <div className="sudoku-mini-block">
+                      <span>Sudoku Puzzle</span>
+                      <div className="sudoku-mini-board">
+                        {sudokuPuzzleRows.map((row, rIdx) => (
+                          row.split("").map((cell, cIdx) => {
+                            const value = cell === "0" ? "" : cell;
+                            const classes = [
+                              "sudoku-mini-cell",
+                              value ? "is-given" : "",
+                              rIdx % 3 === 0 ? "top-strong" : "",
+                              cIdx % 3 === 0 ? "left-strong" : "",
+                              rIdx === 2 || rIdx === 5 ? "row-divider" : "",
+                              cIdx === 2 || cIdx === 5 ? "col-divider" : "",
+                              rIdx === 8 ? "bottom-strong" : "",
+                              cIdx === 8 ? "right-strong" : "",
+                            ].filter(Boolean).join(" ");
+
+                            return <div className={classes} key={`p-${rIdx}-${cIdx}`}>{value}</div>;
+                          })
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {sudokuUserRows && (
+                    <div className="sudoku-mini-block">
+                      <span>Your Final Grid</span>
+                      <div className="sudoku-mini-board">
+                        {sudokuUserRows.map((row, rIdx) => (
+                          row.split("").map((cell, cIdx) => {
+                            const value = cell === "0" ? "" : cell;
+                            const classes = [
+                              "sudoku-mini-cell",
+                              rIdx % 3 === 0 ? "top-strong" : "",
+                              cIdx % 3 === 0 ? "left-strong" : "",
+                              rIdx === 2 || rIdx === 5 ? "row-divider" : "",
+                              cIdx === 2 || cIdx === 5 ? "col-divider" : "",
+                              rIdx === 8 ? "bottom-strong" : "",
+                              cIdx === 8 ? "right-strong" : "",
+                            ].filter(Boolean).join(" ");
+
+                            return <div className={classes} key={`u-${rIdx}-${cIdx}`}>{value}</div>;
+                          })
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {selectedType === "tictactoe" && (
+                <>
+                  {tttCells.length === 9 && (
+                    <div className="ttt-mini-board">
+                      {tttCells.map((cell, idx) => (
+                        <div className="ttt-mini-cell" key={`ttt-cell-${idx}`}>{cell === "-" ? "" : cell}</div>
+                      ))}
+                    </div>
+                  )}
+                  {(selectedGame.tictactoe_move_history?.length ?? 0) > 0 && (
+                    <div className="move-lines">
+                      {(selectedGame.tictactoe_move_history ?? []).map((line, idx) => (
+                        <div className="move-line" key={`${selectedGame.id}-ttt-${idx}`}>{idx + 1}. {line}</div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </>
           ) : (

@@ -2,6 +2,7 @@ export type PlayerColor = "white" | "black";
 export type DifficultyLevel = "easy" | "medium" | "hard";
 export type GameResult = "win" | "loss" | "draw" | "aborted";
 export type TimeControl = "3+2" | "5+0" | "10+0" | "10+3" | "15+10";
+export type GameType = "chess" | "sudoku" | "tictactoe";
 
 export type GameOverModalState = {
   visible: boolean;
@@ -18,17 +19,28 @@ export type AuthUser = {
 
 export type SavedGame = {
   id: string;
+  game_type?: GameType;
   result: GameResult;
   difficulty: DifficultyLevel;
-  player_color: PlayerColor;
+  player_color?: PlayerColor;
   time_control?: TimeControl;
   initial_seconds?: number;
   increment_seconds?: number;
   white_time_left_ms?: number;
   black_time_left_ms?: number;
   timeout_loser?: PlayerColor;
-  move_history: string[];
-  final_fen: string;
+  move_history?: string[];
+  final_fen?: string;
   pgn?: string;
+  sudoku_puzzle?: string;
+  sudoku_solution?: string;
+  sudoku_user_grid?: string;
+  sudoku_elapsed_seconds?: number;
+  sudoku_mistakes?: number;
+  tictactoe_board?: string;
+  tictactoe_player_mark?: "X" | "O";
+  tictactoe_winner?: "X" | "O" | "draw";
+  tictactoe_move_history?: string[];
+  tictactoe_elapsed_seconds?: number;
   finished_at?: string;
 };

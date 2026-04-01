@@ -12,9 +12,12 @@ import HistoryPage from "./components/pages/HistoryPage";
 import HomePage from "./components/pages/HomePage";
 import MatchPage from "./components/pages/MatchPage";
 import PlaySetupPage from "./components/pages/PlaySetupPage";
+import SudokuPage from "./components/pages/SudokuPage";
+import TicTacToePage from "./components/pages/TicTacToePage";
 import type {
   AuthUser,
   DifficultyLevel,
+  GameType,
   GameOverModalState,
   GameResult,
   PlayerColor,
@@ -109,6 +112,7 @@ function AppInner() {
   const [gamesError, setGamesError] = useState("");
   const [recentGames, setRecentGames] = useState<SavedGame[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string>("");
+  const [filterGameType, setFilterGameType] = useState<"all" | GameType>("all");
   const [filterResult, setFilterResult] = useState<"all" | GameResult>("all");
   const [filterDifficulty, setFilterDifficulty] = useState<"all" | DifficultyLevel>("all");
   const [filterColor, setFilterColor] = useState<"all" | PlayerColor>("all");
@@ -381,6 +385,7 @@ function AppInner() {
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
+          game_type: "chess",
           result: forcedResult ?? gameResultForPlayer(g),
           difficulty,
           player_color: playerColor,
@@ -616,7 +621,7 @@ function AppInner() {
     setLoading(false);
     clearSelection();
     setGameOverModal({ visible: false, title: "", message: "" });
-    navigate("/play/match");
+    navigate("/chess/match");
 
     setTimedOutLoser(null);
 
@@ -800,7 +805,7 @@ function AppInner() {
     clearSelection();
     setLastEngineMove(null);
     setGameOverModal({ visible: false, title: "", message: "" });
-    navigate("/play");
+    navigate("/chess");
   }
 
   async function endGameAsLoss() {
@@ -818,6 +823,8 @@ function AppInner() {
   const filteredGames = useMemo(() => {
     const query = searchText.trim().toLowerCase();
     return recentGames.filter((g) => {
+      const gameType = g.game_type ?? "chess";
+      if (filterGameType !== "all" && gameType !== filterGameType) return false;
       if (filterResult !== "all" && g.result !== filterResult) return false;
       if (filterDifficulty !== "all" && g.difficulty !== filterDifficulty) return false;
       if (filterColor !== "all" && g.player_color !== filterColor) return false;
@@ -828,13 +835,14 @@ function AppInner() {
       return (
         dateText.includes(query)
         || pgnText.includes(query)
+        || gameType.includes(query)
         || g.result.includes(query)
         || g.difficulty.includes(query)
-        || g.player_color.includes(query)
+        || (g.player_color ?? "").includes(query)
         || (g.time_control ?? "").includes(query)
       );
     });
-  }, [recentGames, filterResult, filterDifficulty, filterColor, searchText]);
+  }, [recentGames, filterGameType, filterResult, filterDifficulty, filterColor, searchText]);
 
   const selectedGame = useMemo(
     () => filteredGames.find((g) => g.id === selectedGameId) ?? filteredGames[0] ?? null,
@@ -893,12 +901,17 @@ function AppInner() {
           onToggleUserMenu={() => setShowUserMenu((prev) => !prev)}
           onGoHome={() => navigate("/")}
           onGoHistory={openRecentGamesPage}
-          onGoPlay={() => navigate("/play")}
+          onGoPlay={() => navigate("/chess")}
+          onGoSudoku={() => navigate("/sudoku")}
+          onGoTicTacToe={() => navigate("/tictactoe")}
           onLogout={handleLogout}
         />
 
         <Routes>
-          <Route path="/" element={<HomePage onPlay={() => navigate("/play")} onAnalyze={openRecentGamesPage} />} />
+          <Route
+            path="/"
+            element={<HomePage onPlayChess={() => navigate("/chess")} onPlaySudoku={() => navigate("/sudoku")} onPlayTicTacToe={() => navigate("/tictactoe")} />}
+          />
 
           <Route
             path="/history"
@@ -908,6 +921,7 @@ function AppInner() {
                 gamesError={gamesError}
                 filteredGames={filteredGames}
                 selectedGame={selectedGame}
+                filterGameType={filterGameType}
                 filterResult={filterResult}
                 filterDifficulty={filterDifficulty}
                 filterColor={filterColor}
@@ -917,7 +931,8 @@ function AppInner() {
                 movePairs={movePairs}
                 toLabel={toLabel}
                 onRefresh={() => void fetchRecentGames()}
-                onPlayNow={() => navigate("/play")}
+                onPlayNow={() => navigate("/chess")}
+                onSetFilterGameType={setFilterGameType}
                 onSetFilterResult={setFilterResult}
                 onSetFilterDifficulty={setFilterDifficulty}
                 onSetFilterColor={setFilterColor}
@@ -928,7 +943,29 @@ function AppInner() {
           />
 
           <Route
-            path="/play"
+            path="/sudoku"
+            element={(
+              <SudokuPage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+              />
+            )}
+          />
+
+          <Route
+            path="/tictactoe"
+            element={(
+              <TicTacToePage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+              />
+            )}
+          />
+
+          <Route
+            path="/chess"
             element={(
               <PlaySetupPage
                 playerColor={playerColor}
@@ -945,7 +982,7 @@ function AppInner() {
           />
 
           <Route
-            path="/play/match"
+            path="/chess/match"
             element={gameStarted ? (
               <MatchPage
                 fen={fen}
@@ -969,7 +1006,7 @@ function AppInner() {
                 onUndo={undoLastTurn}
                 onEndGame={endGameAsLoss}
               />
-            ) : <Navigate to="/play" replace />}
+            ) : <Navigate to="/chess" replace />}
           />
 
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -977,7 +1014,11 @@ function AppInner() {
 
         <footer className="hint-line">
           {location.pathname === "/"
-            ? "Start with Play With Computer for a new game or Analyze to review your previous battles."
+            ? "Pick Chess, Sudoku, or Tic Tac Toe to jump into your game universe."
+            : location.pathname === "/sudoku"
+              ? "Use the number pad to fill cells. Every completed puzzle is stored in your history."
+            : location.pathname === "/tictactoe"
+              ? "Play as X. Click any empty tile to make a move against the AI."
             : isSetup
               ? "Tip: choose Black if you want Stockfish to make the first move."
               : playerTurn

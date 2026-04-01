@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta, timezone
+import random
 from typing import Literal
 
 import chess
@@ -12,7 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from pymongo import ASCENDING, DESCENDING, MongoClient
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -58,6 +59,8 @@ DifficultyLevel = Literal["easy", "medium", "hard"]
 PlayerColor = Literal["white", "black"]
 GameResult = Literal["win", "loss", "draw", "aborted"]
 TimeControl = Literal["3+2", "5+0", "10+0", "10+3", "15+10"]
+GameType = Literal["chess", "sudoku", "tictactoe"]
+TicTacToeMark = Literal["X", "O"]
 
 DIFFICULTY_PROFILES = {
     "easy": {
@@ -100,20 +103,47 @@ class AuthResponse(BaseModel):
 
 
 class SaveGameRequest(BaseModel):
+    game_type: GameType = "chess"
     result: GameResult
     difficulty: DifficultyLevel
-    player_color: PlayerColor
+    player_color: PlayerColor | None = None
     time_control: TimeControl | None = None
     initial_seconds: int | None = None
     increment_seconds: int | None = None
     white_time_left_ms: int | None = None
     black_time_left_ms: int | None = None
     timeout_loser: PlayerColor | None = None
-    final_fen: str
-    move_history: list[str]
+    final_fen: str | None = None
+    move_history: list[str] = Field(default_factory=list)
     pgn: str | None = None
+    sudoku_puzzle: str | None = None
+    sudoku_solution: str | None = None
+    sudoku_user_grid: str | None = None
+    sudoku_elapsed_seconds: int | None = None
+    sudoku_mistakes: int | None = None
+    tictactoe_board: str | None = None
+    tictactoe_player_mark: TicTacToeMark | None = None
+    tictactoe_winner: str | None = None
+    tictactoe_move_history: list[str] = Field(default_factory=list)
+    tictactoe_elapsed_seconds: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+
+class SudokuCreateRequest(BaseModel):
+    difficulty: DifficultyLevel = "medium"
+
+
+class SudokuCreateResponse(BaseModel):
+    puzzle: str
+    solution: str
+    difficulty: DifficultyLevel
+
+
+class TicTacToeBestMoveRequest(BaseModel):
+    board: str
+    difficulty: DifficultyLevel = "medium"
+    ai_mark: TicTacToeMark = "O"
 
 
 def serialize_user(doc: dict) -> UserPublic:
@@ -128,6 +158,7 @@ def serialize_user(doc: dict) -> UserPublic:
 def serialize_game(doc: dict) -> dict:
     return {
         "id": str(doc["_id"]),
+        "game_type": doc.get("game_type", "chess"),
         "result": doc.get("result"),
         "difficulty": doc.get("difficulty"),
         "player_color": doc.get("player_color"),
@@ -140,10 +171,152 @@ def serialize_game(doc: dict) -> dict:
         "final_fen": doc.get("final_fen"),
         "move_history": doc.get("move_history", []),
         "pgn": doc.get("pgn"),
+        "sudoku_puzzle": doc.get("sudoku_puzzle"),
+        "sudoku_solution": doc.get("sudoku_solution"),
+        "sudoku_user_grid": doc.get("sudoku_user_grid"),
+        "sudoku_elapsed_seconds": doc.get("sudoku_elapsed_seconds"),
+        "sudoku_mistakes": doc.get("sudoku_mistakes"),
+        "tictactoe_board": doc.get("tictactoe_board"),
+        "tictactoe_player_mark": doc.get("tictactoe_player_mark"),
+        "tictactoe_winner": doc.get("tictactoe_winner"),
+        "tictactoe_move_history": doc.get("tictactoe_move_history", []),
+        "tictactoe_elapsed_seconds": doc.get("tictactoe_elapsed_seconds"),
         "started_at": doc.get("started_at"),
         "finished_at": doc.get("finished_at"),
         "created_at": doc.get("created_at"),
     }
+
+
+def _chunk_to_grid(values: list[int]) -> list[list[int]]:
+    return [values[i:i + 9] for i in range(0, 81, 9)]
+
+
+def _grid_to_string(grid: list[list[int]]) -> str:
+    return "".join(str(value) for row in grid for value in row)
+
+
+def generate_sudoku(difficulty: DifficultyLevel) -> tuple[str, str]:
+    base = 3
+    side = base * base
+
+    def pattern(row: int, col: int) -> int:
+        return (base * (row % base) + row // base + col) % side
+
+    def shuffled(seq: list[int]) -> list[int]:
+        out = seq[:]
+        random.shuffle(out)
+        return out
+
+    rows = [group * base + row for group in shuffled(list(range(base))) for row in shuffled(list(range(base)))]
+    cols = [group * base + col for group in shuffled(list(range(base))) for col in shuffled(list(range(base)))]
+    nums = shuffled(list(range(1, side + 1)))
+
+    solved = [[nums[pattern(r, c)] for c in cols] for r in rows]
+
+    removals = {
+        "easy": 36,
+        "medium": 45,
+        "hard": 54,
+    }[difficulty]
+
+    puzzle_values = [value for row in solved for value in row]
+    for idx in random.sample(range(81), removals):
+        puzzle_values[idx] = 0
+
+    puzzle = _grid_to_string(_chunk_to_grid(puzzle_values))
+    solution = _grid_to_string(solved)
+    return puzzle, solution
+
+
+def ttt_winner(board: list[str]) -> str | None:
+    lines = [
+        (0, 1, 2), (3, 4, 5), (6, 7, 8),
+        (0, 3, 6), (1, 4, 7), (2, 5, 8),
+        (0, 4, 8), (2, 4, 6),
+    ]
+    for a, b, c in lines:
+        if board[a] != "-" and board[a] == board[b] == board[c]:
+            return board[a]
+    return None
+
+
+def ttt_available(board: list[str]) -> list[int]:
+    return [idx for idx, value in enumerate(board) if value == "-"]
+
+
+def ttt_minimax(board: list[str], ai_mark: str, human_mark: str, maximizing: bool) -> tuple[int, int | None]:
+    winner = ttt_winner(board)
+    if winner == ai_mark:
+        return 10, None
+    if winner == human_mark:
+        return -10, None
+
+    available = ttt_available(board)
+    if not available:
+        return 0, None
+
+    if maximizing:
+        best_score = -999
+        best_move = available[0]
+        for idx in available:
+            board[idx] = ai_mark
+            score, _ = ttt_minimax(board, ai_mark, human_mark, False)
+            board[idx] = "-"
+            if score > best_score:
+                best_score = score
+                best_move = idx
+        return best_score, best_move
+
+    best_score = 999
+    best_move = available[0]
+    for idx in available:
+        board[idx] = human_mark
+        score, _ = ttt_minimax(board, ai_mark, human_mark, True)
+        board[idx] = "-"
+        if score < best_score:
+            best_score = score
+            best_move = idx
+    return best_score, best_move
+
+
+def pick_tictactoe_move(board: str, difficulty: DifficultyLevel, ai_mark: str) -> int:
+    cells = list(board)
+    if len(cells) != 9 or any(ch not in {"X", "O", "-"} for ch in cells):
+        raise HTTPException(status_code=400, detail="Invalid board")
+
+    if ttt_winner(cells) is not None:
+        raise HTTPException(status_code=400, detail="Game is already finished")
+
+    available = ttt_available(cells)
+    if not available:
+        raise HTTPException(status_code=400, detail="Board is full")
+
+    human_mark = "O" if ai_mark == "X" else "X"
+
+    if difficulty == "easy":
+        return random.choice(available)
+
+    if difficulty == "medium":
+        for idx in available:
+            cells[idx] = ai_mark
+            if ttt_winner(cells) == ai_mark:
+                cells[idx] = "-"
+                return idx
+            cells[idx] = "-"
+
+        for idx in available:
+            cells[idx] = human_mark
+            if ttt_winner(cells) == human_mark:
+                cells[idx] = "-"
+                return idx
+            cells[idx] = "-"
+
+        return random.choice(available)
+
+    _, move = ttt_minimax(cells, ai_mark, human_mark, True)
+    if move is None:
+        return random.choice(available)
+    return move
 
 
 def create_app_token(user_id: str) -> str:
@@ -209,6 +382,7 @@ def startup():
         users_collection.create_index([("google_sub", ASCENDING)], unique=True)
         users_collection.create_index([("email", ASCENDING)], unique=True)
         games_collection.create_index([("user_id", ASCENDING), ("finished_at", DESCENDING)])
+        games_collection.create_index([("user_id", ASCENDING), ("game_type", ASCENDING), ("finished_at", DESCENDING)])
     else:
         print("Warning: MONGODB_URI is not set; auth and game history endpoints will not work.")
 
@@ -284,37 +458,97 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
     if games_collection is None:
         raise HTTPException(status_code=500, detail="Database is not configured")
 
+    if req.game_type == "chess":
+        if req.player_color is None:
+            raise HTTPException(status_code=400, detail="player_color is required for chess games")
+        if req.final_fen is None:
+            raise HTTPException(status_code=400, detail="final_fen is required for chess games")
+    if req.game_type == "sudoku":
+        if req.sudoku_puzzle is None:
+            raise HTTPException(status_code=400, detail="sudoku_puzzle is required for sudoku games")
+        if req.sudoku_user_grid is None:
+            raise HTTPException(status_code=400, detail="sudoku_user_grid is required for sudoku games")
+    if req.game_type == "tictactoe":
+        if req.tictactoe_board is None:
+            raise HTTPException(status_code=400, detail="tictactoe_board is required for tictactoe games")
+        if req.tictactoe_player_mark is None:
+            raise HTTPException(status_code=400, detail="tictactoe_player_mark is required for tictactoe games")
+
     now = datetime.now(timezone.utc)
-    payload = {
+    payload: dict = {
         "user_id": user["_id"],
+        "game_type": req.game_type,
         "result": req.result,
         "difficulty": req.difficulty,
-        "player_color": req.player_color,
-        "time_control": req.time_control,
-        "initial_seconds": req.initial_seconds,
-        "increment_seconds": req.increment_seconds,
-        "white_time_left_ms": req.white_time_left_ms,
-        "black_time_left_ms": req.black_time_left_ms,
-        "timeout_loser": req.timeout_loser,
-        "final_fen": req.final_fen,
-        "move_history": req.move_history,
-        "pgn": req.pgn,
         "started_at": req.started_at or now,
         "finished_at": req.finished_at or now,
         "created_at": now,
     }
+
+    if req.game_type == "chess":
+        payload.update({
+            "player_color": req.player_color,
+            "time_control": req.time_control,
+            "initial_seconds": req.initial_seconds,
+            "increment_seconds": req.increment_seconds,
+            "white_time_left_ms": req.white_time_left_ms,
+            "black_time_left_ms": req.black_time_left_ms,
+            "timeout_loser": req.timeout_loser,
+            "final_fen": req.final_fen,
+            "move_history": req.move_history,
+            "pgn": req.pgn,
+        })
+    elif req.game_type == "sudoku":
+        payload.update({
+            "sudoku_puzzle": req.sudoku_puzzle,
+            "sudoku_solution": req.sudoku_solution,
+            "sudoku_user_grid": req.sudoku_user_grid,
+            "sudoku_elapsed_seconds": req.sudoku_elapsed_seconds,
+            "sudoku_mistakes": req.sudoku_mistakes,
+        })
+    else:
+        payload.update({
+            "tictactoe_board": req.tictactoe_board,
+            "tictactoe_player_mark": req.tictactoe_player_mark,
+            "tictactoe_winner": req.tictactoe_winner,
+            "tictactoe_move_history": req.tictactoe_move_history,
+            "tictactoe_elapsed_seconds": req.tictactoe_elapsed_seconds,
+        })
     inserted = games_collection.insert_one(payload)
     return {"id": str(inserted.inserted_id)}
 
 
 @app.get("/games")
-def list_games(limit: int = 20, user: dict = Depends(get_current_user)):
+def list_games(limit: int = 20, game_type: GameType | None = None, user: dict = Depends(get_current_user)):
     if games_collection is None:
         raise HTTPException(status_code=500, detail="Database is not configured")
 
     safe_limit = max(1, min(limit, 100))
-    docs = games_collection.find({"user_id": user["_id"]}).sort("finished_at", DESCENDING).limit(safe_limit)
+    query: dict = {"user_id": user["_id"]}
+    if game_type is not None:
+        query["game_type"] = game_type
+
+    docs = games_collection.find(query).sort("finished_at", DESCENDING).limit(safe_limit)
     return {"games": [serialize_game(doc) for doc in docs]}
+
+
+@app.post("/sudoku/new", response_model=SudokuCreateResponse)
+def create_sudoku(req: SudokuCreateRequest):
+    puzzle, solution = generate_sudoku(req.difficulty)
+    return SudokuCreateResponse(
+        puzzle=puzzle,
+        solution=solution,
+        difficulty=req.difficulty,
+    )
+
+
+@app.post("/tictactoe/best-move")
+def tictactoe_best_move(req: TicTacToeBestMoveRequest):
+    ai_index = pick_tictactoe_move(req.board, req.difficulty, req.ai_mark)
+    return {
+        "index": ai_index,
+        "difficulty": req.difficulty,
+    }
 
 @app.post("/best-move")
 def best_move(req: BestMoveRequest):

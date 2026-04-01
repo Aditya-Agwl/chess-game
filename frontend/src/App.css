@@ -187,7 +187,7 @@ body {
 
 .history-filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -219,6 +219,7 @@ body {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
   gap: 12px;
   min-height: 460px;
+  align-items: start;
 }
 
 .history-list-panel,
@@ -232,6 +233,16 @@ body {
 .history-detail-panel {
   display: grid;
   gap: 10px;
+}
+
+.history-list-panel {
+  max-height: 640px;
+  overflow: auto;
+}
+
+.history-detail-panel {
+  max-height: 640px;
+  overflow: auto;
 }
 
 .history-detail-panel h3 {
@@ -338,6 +349,230 @@ body {
   margin-top: 0;
   border-radius: 16px;
   font-size: 1rem;
+}
+
+.game-universe-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.universe-card {
+  border: 1px solid #d8c3a2;
+  border-radius: 16px;
+  background: linear-gradient(165deg, #fff7e6, #f5e2be);
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  color: #2b1f14;
+  cursor: pointer;
+}
+
+.universe-card strong {
+  font-size: 1.3rem;
+}
+
+.universe-card span {
+  font-size: 0.86rem;
+  color: #5f5343;
+}
+
+.universe-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: #7b5632;
+}
+
+.universe-card-sudoku {
+  background: linear-gradient(165deg, #eef8ea, #d5ecce);
+  border-color: #b8d5b1;
+}
+
+.universe-card-ttt {
+  background: linear-gradient(165deg, #e8f4fb, #cde6f6);
+  border-color: #a8c9de;
+}
+
+.universe-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 24px rgba(42, 30, 10, 0.16);
+}
+
+.sudoku-page {
+  display: grid;
+  gap: 14px;
+}
+
+.tictactoe-page {
+  display: grid;
+  gap: 14px;
+}
+
+.ttt-grid {
+  width: min(420px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 2px solid #8e7757;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ttt-cell {
+  aspect-ratio: 1 / 1;
+  border: 1px solid #d9c9af;
+  background: #fffdf7;
+  color: #2f2518;
+  font: 700 2rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+  cursor: pointer;
+}
+
+.ttt-cell:hover:enabled {
+  background: #edf6fd;
+}
+
+.ttt-cell.is-ai-last {
+  box-shadow: inset 0 0 0 3px rgba(31, 115, 183, 0.78);
+  background: #e6f2fb;
+}
+
+.ttt-moves {
+  max-height: 180px;
+}
+
+.ttt-side-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ttt-side-actions .btn {
+  margin-top: 0;
+}
+
+.sudoku-header h2 {
+  margin: 0;
+}
+
+.sudoku-header p {
+  margin: 6px 0 0;
+}
+
+.sudoku-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sudoku-topbar label {
+  display: grid;
+  gap: 6px;
+  color: #5b513f;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.sudoku-topbar select {
+  border: 1px solid #dfccaf;
+  border-radius: 10px;
+  background: #fffdf7;
+  color: #2f2518;
+  padding: 10px;
+  font: 500 0.9rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+}
+
+.sudoku-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: #5e5444;
+  font-size: 0.9rem;
+}
+
+.sudoku-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  width: min(560px, 100%);
+  border: 2px solid #8e7757;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.sudoku-cell {
+  aspect-ratio: 1 / 1;
+  border: 1px solid #d9c9af;
+  background: #fffdf7;
+  color: #2f2518;
+  font: 700 1.05rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+  cursor: pointer;
+}
+
+.sudoku-cell:hover:enabled {
+  background: #fff4dd;
+}
+
+.sudoku-cell.is-fixed {
+  background: #f1e2c7;
+  color: #2f2518;
+}
+
+.sudoku-cell.is-selected {
+  box-shadow: inset 0 0 0 2px #bb8a2c;
+  background: #fff1d3;
+}
+
+.sudoku-cell.is-invalid {
+  background: #ffe6e6;
+  color: #8f1d1d;
+}
+
+.sudoku-cell.top-strong {
+  border-top: 2px solid #8e7757;
+}
+
+.sudoku-cell.left-strong {
+  border-left: 2px solid #8e7757;
+}
+
+.sudoku-cell.row-divider {
+  border-bottom: 2px solid #8e7757;
+}
+
+.sudoku-cell.col-divider {
+  border-right: 2px solid #8e7757;
+}
+
+.sudoku-cell.bottom-strong {
+  border-bottom: 2px solid #8e7757;
+}
+
+.sudoku-cell.right-strong {
+  border-right: 2px solid #8e7757;
+}
+
+.sudoku-pad {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sudoku-pad .btn {
+  margin-top: 0;
+}
+
+.sudoku-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sudoku-actions .btn {
+  margin-top: 0;
 }
 
 .chess-floaters {
@@ -747,6 +982,89 @@ body {
   color: #554b3d;
 }
 
+.sudoku-mini-wrap {
+  display: grid;
+  gap: 12px;
+}
+
+.sudoku-mini-block {
+  display: grid;
+  gap: 8px;
+}
+
+.sudoku-mini-block > span {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sudoku-mini-board {
+  width: min(320px, 100%);
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  border: 2px solid #8e7757;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sudoku-mini-cell {
+  aspect-ratio: 1 / 1;
+  border: 1px solid #d9c9af;
+  background: #fffdf7;
+  color: #2f2518;
+  display: grid;
+  place-items: center;
+  font: 600 0.78rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+}
+
+.sudoku-mini-cell.is-given {
+  background: #f1e2c7;
+}
+
+.sudoku-mini-cell.top-strong {
+  border-top: 2px solid #8e7757;
+}
+
+.sudoku-mini-cell.left-strong {
+  border-left: 2px solid #8e7757;
+}
+
+.sudoku-mini-cell.row-divider {
+  border-bottom: 2px solid #8e7757;
+}
+
+.sudoku-mini-cell.col-divider {
+  border-right: 2px solid #8e7757;
+}
+
+.sudoku-mini-cell.bottom-strong {
+  border-bottom: 2px solid #8e7757;
+}
+
+.sudoku-mini-cell.right-strong {
+  border-right: 2px solid #8e7757;
+}
+
+.ttt-mini-board {
+  width: min(220px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 2px solid #8e7757;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ttt-mini-cell {
+  aspect-ratio: 1 / 1;
+  border: 1px solid #d9c9af;
+  background: #fffdf7;
+  color: #2f2518;
+  display: grid;
+  place-items: center;
+  font: 700 1.2rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+}
+
 .result-modal h2 {
   margin: 0;
   font-size: 1.5rem;
@@ -840,6 +1158,10 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .game-universe-grid {
+    grid-template-columns: 1fr;
+  }
+
   .home-stage {
     min-height: 64vh;
     border-radius: 20px;
@@ -867,6 +1189,14 @@ body {
 
   .history-filters {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .sudoku-pad {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sudoku-actions {
+    grid-template-columns: 1fr;
   }
 
   .history-layout {
