@@ -79,7 +79,8 @@ export default function HistoryPage({
       const parsed = JSON.parse(board) as unknown;
       if (!Array.isArray(parsed) || parsed.length !== 4) return null;
       if (!parsed.every(row => Array.isArray(row) && row.length === 4)) return null;
-      return parsed.map(row => row.map(cell => Number(cell) || 0));
+      const rows = parsed as unknown[][];
+      return rows.map((row: unknown[]) => row.map((cell: unknown) => Number(cell) || 0));
     } catch {
       return null;
     }
