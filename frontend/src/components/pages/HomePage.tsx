@@ -8,9 +8,18 @@ type Props = {
   onPlayConnectFour: () => void;
   onPlayOthello: () => void;
   onPlayMinesweeper: () => void;
+  onPlay2048: () => void;
 };
 
-export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, onPlayConnectFour, onPlayOthello, onPlayMinesweeper }: Props) {
+export default function HomePage({
+  onPlayChess,
+  onPlaySudoku,
+  onPlayTicTacToe,
+  onPlayConnectFour,
+  onPlayOthello,
+  onPlayMinesweeper,
+  onPlay2048,
+}: Props) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
   function onMove(event: MouseEvent<HTMLElement>) {
@@ -79,6 +88,11 @@ export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, o
             <span className="universe-kicker">Puzzle</span>
             <strong>Minesweeper</strong>
             <span>Clear the board while avoiding hidden mines. Multiple difficulty levels.</span>
+          </button>
+          <button className="universe-card universe-card-2048" onClick={onPlay2048}>
+            <span className="universe-kicker">Puzzle</span>
+            <strong>2048</strong>
+            <span>Slide, merge, and build the highest tile you can before the board locks up.</span>
           </button>
         </div>
       </div>

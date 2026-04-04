@@ -73,6 +73,18 @@ export default function HistoryPage({
     return Number.isInteger(sqrt) ? sqrt : 9;
   }
 
+  function parse2048Board(board?: string): number[][] | null {
+    if (!board) return null;
+    try {
+      const parsed = JSON.parse(board) as unknown;
+      if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+      if (!parsed.every(row => Array.isArray(row) && row.length === 4)) return null;
+      return parsed.map(row => row.map(cell => Number(cell) || 0));
+    } catch {
+      return null;
+    }
+  }
+
   const selectedType = selectedGame?.game_type ?? "chess";
   const sudokuPuzzleRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_puzzle) : null;
   const sudokuUserRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_user_grid) : null;
@@ -82,6 +94,7 @@ export default function HistoryPage({
   const minesweeperBoard = selectedType === "minesweeper" ? (selectedGame?.minesweeper_board ?? "").split("") : [];
   const minesweeperRevealed = selectedType === "minesweeper" ? (selectedGame?.minesweeper_revealed ?? "").split("").map(c => c === "1") : [];
   const minesweeperFlagged = selectedType === "minesweeper" ? (selectedGame?.minesweeper_flagged ?? "").split("").map(c => c === "1") : [];
+  const game2048Board = selectedType === "2048" ? parse2048Board(selectedGame?.game_2048_board) : null;
 
   return (
     <section className="history-page">
@@ -106,6 +119,7 @@ export default function HistoryPage({
             <option value="connect4">Connect 4</option>
             <option value="othello">Othello</option>
             <option value="minesweeper">Minesweeper</option>
+            <option value="2048">2048</option>
           </select>
         </label>
         <label>
@@ -198,6 +212,13 @@ export default function HistoryPage({
                         <span>Winner: <strong>{g.othello_winner ?? "-"}</strong></span>
                         <span>Moves: <strong>{g.othello_move_history?.length ?? 0}</strong></span>
                       </>
+                    ) : (g.game_type ?? "chess") === "2048" ? (
+                      <>
+                        <span>Score: <strong>{g.game_2048_score ?? "-"}</strong></span>
+                        <span>Max Tile: <strong>{g.game_2048_max_tile ?? "-"}</strong></span>
+                        <span>Moves: <strong>{g.game_2048_moves ?? 0}</strong></span>
+                        <span>Duration: <strong>{g.game_2048_elapsed_seconds !== undefined ? `${g.game_2048_elapsed_seconds}s` : "-"}</strong></span>
+                      </>
                     ) : (
                       <>
                         <span>Duration: <strong>{g.minesweeper_elapsed_seconds !== undefined ? `${g.minesweeper_elapsed_seconds}s` : "-"}</strong></span>
@@ -225,7 +246,9 @@ export default function HistoryPage({
                         ? "Connect 4 Summary"
                         : selectedType === "othello"
                           ? "Othello Summary"
-                          : "Minesweeper Summary"}
+                          : selectedType === "2048"
+                            ? "2048 Summary"
+                            : "Minesweeper Summary"}
               </h3>
               <div className="history-summary">
                 <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
@@ -268,6 +291,13 @@ export default function HistoryPage({
                     <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
                     <span>Othello Time: <strong>{selectedGame.othello_elapsed_seconds !== undefined ? `${selectedGame.othello_elapsed_seconds}s` : "-"}</strong></span>
                     <span>Winner: <strong>{selectedGame.othello_winner ?? "-"}</strong></span>
+                  </>
+                ) : selectedType === "2048" ? (
+                  <>
+                    <span>Score: <strong>{selectedGame.game_2048_score ?? "-"}</strong></span>
+                    <span>Max Tile: <strong>{selectedGame.game_2048_max_tile ?? "-"}</strong></span>
+                    <span>Moves: <strong>{selectedGame.game_2048_moves ?? 0}</strong></span>
+                    <span>Time: <strong>{selectedGame.game_2048_elapsed_seconds !== undefined ? `${selectedGame.game_2048_elapsed_seconds}s` : "-"}</strong></span>
                   </>
                 ) : (
                   <>
@@ -443,6 +473,23 @@ export default function HistoryPage({
                         </div>
                       );
                     })}
+                  </div>
+                </>
+              )}
+              {selectedType === "2048" && game2048Board && (
+                <>
+                  <div className="game-2048-history-wrap">
+                    <div className="game-2048-history-head">
+                      <span>Final Board</span>
+                      <span className="game-2048-history-badge">Max {selectedGame.game_2048_max_tile ?? "-"}</span>
+                    </div>
+                    <div className="game-2048-history-board">
+                      {game2048Board.flat().map((cell, idx) => (
+                        <div className={`game-2048-history-cell ${cell > 0 ? `tile-${cell}` : "is-empty"}`} key={`2048-cell-${idx}`}>
+                          {cell > 0 ? cell : ""}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </>
               )}

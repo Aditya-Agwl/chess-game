@@ -60,7 +60,7 @@ DifficultyLevel = Literal["easy", "medium", "hard"]
 PlayerColor = Literal["white", "black"]
 GameResult = Literal["win", "loss", "draw", "aborted"]
 TimeControl = Literal["3+2", "5+0", "10+0", "10+3", "15+10"]
-GameType = Literal["chess", "sudoku", "tictactoe", "connect4", "othello", "minesweeper"]
+GameType = Literal["chess", "sudoku", "tictactoe", "connect4", "othello", "minesweeper", "2048"]
 TicTacToeMark = Literal["X", "O"]
 Connect4Disc = Literal["R", "Y"]
 OthelloDisc = Literal["B", "W"]
@@ -148,6 +148,11 @@ class SaveGameRequest(BaseModel):
     minesweeper_flagged: str | None = None
     minesweeper_winner: str | None = None
     minesweeper_elapsed_seconds: int | None = None
+    game_2048_board: str | None = None
+    game_2048_score: int | None = None
+    game_2048_moves: int | None = None
+    game_2048_max_tile: int | None = None
+    game_2048_elapsed_seconds: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -245,6 +250,11 @@ def serialize_game(doc: dict) -> dict:
         "minesweeper_flagged": doc.get("minesweeper_flagged"),
         "minesweeper_winner": doc.get("minesweeper_winner"),
         "minesweeper_elapsed_seconds": doc.get("minesweeper_elapsed_seconds"),
+        "game_2048_board": doc.get("game_2048_board"),
+        "game_2048_score": doc.get("game_2048_score"),
+        "game_2048_moves": doc.get("game_2048_moves"),
+        "game_2048_max_tile": doc.get("game_2048_max_tile"),
+        "game_2048_elapsed_seconds": doc.get("game_2048_elapsed_seconds"),
         "started_at": doc.get("started_at"),
         "finished_at": doc.get("finished_at"),
         "created_at": doc.get("created_at"),
@@ -1007,6 +1017,13 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="minesweeper_revealed is required for minesweeper games")
         if req.minesweeper_flagged is None:
             raise HTTPException(status_code=400, detail="minesweeper_flagged is required for minesweeper games")
+    if req.game_type == "2048":
+        if req.game_2048_board is None:
+            raise HTTPException(status_code=400, detail="game_2048_board is required for 2048 games")
+        if req.game_2048_score is None:
+            raise HTTPException(status_code=400, detail="game_2048_score is required for 2048 games")
+        if req.game_2048_moves is None:
+            raise HTTPException(status_code=400, detail="game_2048_moves is required for 2048 games")
 
     now = datetime.now(timezone.utc)
     payload: dict = {
@@ -1063,6 +1080,14 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             "othello_winner": req.othello_winner,
             "othello_move_history": req.othello_move_history,
             "othello_elapsed_seconds": req.othello_elapsed_seconds,
+        })
+    elif req.game_type == "2048":
+        payload.update({
+            "game_2048_board": req.game_2048_board,
+            "game_2048_score": req.game_2048_score,
+            "game_2048_moves": req.game_2048_moves,
+            "game_2048_max_tile": req.game_2048_max_tile,
+            "game_2048_elapsed_seconds": req.game_2048_elapsed_seconds,
         })
     else:  # minesweeper
         payload.update({

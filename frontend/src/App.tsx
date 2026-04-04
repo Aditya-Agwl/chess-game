@@ -12,6 +12,7 @@ import ConnectFourPage from "./components/pages/ConnectFourPage";
 import HistoryPage from "./components/pages/HistoryPage";
 import HomePage from "./components/pages/HomePage";
 import MatchPage from "./components/pages/MatchPage";
+import Game2048Page from "./components/pages/2048Page";
 import MinesweeperPage from "./components/pages/MinesweeperPage";
 import OthelloPage from "./components/pages/OthelloPage";
 import PlaySetupPage from "./components/pages/PlaySetupPage";
@@ -910,6 +911,7 @@ function AppInner() {
           onGoConnectFour={() => navigate("/connect4")}
           onGoOthello={() => navigate("/othello/settings/mode")}
           onGoMinesweeper={() => navigate("/minesweeper/settings")}
+          onGo2048={() => navigate("/2048/settings")}
           onLogout={handleLogout}
         />
 
@@ -924,6 +926,7 @@ function AppInner() {
                 onPlayConnectFour={() => navigate("/connect4")}
                 onPlayOthello={() => navigate("/othello/settings/mode")}
                 onPlayMinesweeper={() => navigate("/minesweeper/settings")}
+                onPlay2048={() => navigate("/2048/settings")}
               />
             )}
           />
@@ -994,10 +997,10 @@ function AppInner() {
             path="/minesweeper/settings"
             element={(
               <MinesweeperPage
-                                routeMode="settings"
                 authToken={authToken}
                 apiBase={API_BASE}
                 onOpenHistory={openRecentGamesPage}
+                routeMode="settings"
               />
             )}
           />
@@ -1018,6 +1021,37 @@ function AppInner() {
             path="/minesweeper"
             element={(
               <Navigate to="/minesweeper/settings" replace />
+            )}
+          />
+
+          <Route
+            path="/2048/settings"
+            element={(
+              <Game2048Page
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="settings"
+              />
+            )}
+          />
+
+          <Route
+            path="/2048/play"
+            element={(
+              <Game2048Page
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="play"
+              />
+            )}
+          />
+
+          <Route
+            path="/2048"
+            element={(
+              <Navigate to="/2048/settings" replace />
             )}
           />
           <Route
