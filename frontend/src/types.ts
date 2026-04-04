@@ -2,7 +2,7 @@ export type PlayerColor = "white" | "black";
 export type DifficultyLevel = "easy" | "medium" | "hard";
 export type GameResult = "win" | "loss" | "draw" | "aborted";
 export type TimeControl = "3+2" | "5+0" | "10+0" | "10+3" | "15+10";
-export type GameType = "chess" | "sudoku" | "tictactoe" | "connect4" | "othello";
+export type GameType = "chess" | "sudoku" | "tictactoe" | "connect4" | "othello" | "minesweeper";
 
 export type GameOverModalState = {
   visible: boolean;
@@ -52,5 +52,12 @@ export type SavedGame = {
   othello_winner?: "B" | "W" | "draw";
   othello_move_history?: string[];
   othello_elapsed_seconds?: number;
+  minesweeper_board?: string;
+  minesweeper_mines?: string;
+  minesweeper_revealed?: string;
+  minesweeper_flagged?: string;
+  minesweeper_winner?: string;
+  minesweeper_elapsed_seconds?: number;
+  minesweeper_board_size?: "small" | "medium" | "large";
   finished_at?: string;
 };

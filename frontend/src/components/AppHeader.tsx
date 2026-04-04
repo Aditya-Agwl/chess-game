@@ -11,6 +11,7 @@ type Props = {
   onGoTicTacToe: () => void;
   onGoConnectFour: () => void;
   onGoOthello: () => void;
+  onGoMinesweeper: () => void;
   onLogout: () => void;
 };
 
@@ -25,6 +26,7 @@ export default function AppHeader({
   onGoTicTacToe,
   onGoConnectFour,
   onGoOthello,
+  onGoMinesweeper,
   onLogout,
 }: Props) {
   return (
@@ -60,6 +62,7 @@ export default function AppHeader({
                 <button className="user-menu-item" onClick={onGoTicTacToe}>Play Tic Tac Toe</button>
                 <button className="user-menu-item" onClick={onGoConnectFour}>Play Connect 4</button>
                 <button className="user-menu-item" onClick={onGoOthello}>Play Othello</button>
+                <button className="user-menu-item" onClick={onGoMinesweeper}>Play Minesweeper</button>
                 <button className="btn btn-light" onClick={onLogout}>Sign Out</button>
               </div>
             )}

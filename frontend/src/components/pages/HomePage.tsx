@@ -7,9 +7,10 @@ type Props = {
   onPlayTicTacToe: () => void;
   onPlayConnectFour: () => void;
   onPlayOthello: () => void;
+  onPlayMinesweeper: () => void;
 };
 
-export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, onPlayConnectFour, onPlayOthello }: Props) {
+export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, onPlayConnectFour, onPlayOthello, onPlayMinesweeper }: Props) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
   function onMove(event: MouseEvent<HTMLElement>) {
@@ -73,6 +74,11 @@ export default function HomePage({ onPlayChess, onPlaySudoku, onPlayTicTacToe, o
             <span className="universe-kicker">Tactics</span>
             <strong>Othello</strong>
             <span>Play local or versus smart AI with legal-move guidance and post-game history.</span>
+          </button>
+          <button className="universe-card universe-card-minesweeper" onClick={onPlayMinesweeper}>
+            <span className="universe-kicker">Puzzle</span>
+            <strong>Minesweeper</strong>
+            <span>Clear the board while avoiding hidden mines. Multiple difficulty levels.</span>
           </button>
         </div>
       </div>

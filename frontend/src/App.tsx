@@ -12,6 +12,7 @@ import ConnectFourPage from "./components/pages/ConnectFourPage";
 import HistoryPage from "./components/pages/HistoryPage";
 import HomePage from "./components/pages/HomePage";
 import MatchPage from "./components/pages/MatchPage";
+import MinesweeperPage from "./components/pages/MinesweeperPage";
 import OthelloPage from "./components/pages/OthelloPage";
 import PlaySetupPage from "./components/pages/PlaySetupPage";
 import SudokuPage from "./components/pages/SudokuPage";
@@ -908,6 +909,7 @@ function AppInner() {
           onGoTicTacToe={() => navigate("/tictactoe")}
           onGoConnectFour={() => navigate("/connect4")}
           onGoOthello={() => navigate("/othello/settings/mode")}
+          onGoMinesweeper={() => navigate("/minesweeper/settings")}
           onLogout={handleLogout}
         />
 
@@ -921,6 +923,7 @@ function AppInner() {
                 onPlayTicTacToe={() => navigate("/tictactoe")}
                 onPlayConnectFour={() => navigate("/connect4")}
                 onPlayOthello={() => navigate("/othello/settings/mode")}
+                onPlayMinesweeper={() => navigate("/minesweeper/settings")}
               />
             )}
           />
@@ -987,6 +990,36 @@ function AppInner() {
             )}
           />
 
+          <Route
+            path="/minesweeper/settings"
+            element={(
+              <MinesweeperPage
+                                routeMode="settings"
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+              />
+            )}
+          />
+
+          <Route
+            path="/minesweeper/play"
+            element={(
+              <MinesweeperPage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="play"
+              />
+            )}
+          />
+
+          <Route
+            path="/minesweeper"
+            element={(
+              <Navigate to="/minesweeper/settings" replace />
+            )}
+          />
           <Route
             path="/othello/settings"
             element={(
@@ -1094,20 +1127,22 @@ function AppInner() {
 
         <footer className="hint-line">
           {location.pathname === "/"
-            ? "Pick Chess, Sudoku, Tic Tac Toe, Connect 4, or Othello to jump into your game universe."
+            ? "Pick Chess, Sudoku, Tic Tac Toe, Connect 4, Othello, or Minesweeper to jump into your game universe."
             : location.pathname === "/sudoku"
               ? "Use the number pad to fill cells. Every completed puzzle is stored in your history."
-            : location.pathname === "/tictactoe"
-              ? "Play as X. Click any empty tile to make a move against the AI."
-              : location.pathname === "/connect4"
-                ? "Take turns dropping discs. First to connect four horizontally, vertically, or diagonally wins."
-            : location.pathname.startsWith("/othello")
-                ? "Corners matter: every move can flip lines. If no legal move exists, pass turn."
-            : isSetup
-              ? "Tip: choose Black if you want Stockfish to make the first move."
-              : playerTurn
-                ? "Your move: click your piece, click destination. Drag-and-drop also works."
-                : "Wait for computer reply. Moves are disabled during engine turn."}
+              : location.pathname === "/tictactoe"
+                ? "Play as X. Click any empty tile to make a move against the AI."
+                : location.pathname === "/connect4"
+                  ? "Take turns dropping discs. First to connect four horizontally, vertically, or diagonally wins."
+                  : location.pathname === "/minesweeper"
+                    ? "Left-click to reveal, right-click to flag. Avoid mines and clear the board to win."
+              : location.pathname.startsWith("/othello")
+                  ? "Corners matter: every move can flip lines. If no legal move exists, pass turn."
+              : isSetup
+                ? "Tip: choose Black if you want Stockfish to make the first move."
+                : playerTurn
+                  ? "Your move: click your piece, click destination. Drag-and-drop also works."
+                  : "Wait for computer reply. Moves are disabled during engine turn."}
         </footer>
       </main>
 

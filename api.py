@@ -60,11 +60,12 @@ DifficultyLevel = Literal["easy", "medium", "hard"]
 PlayerColor = Literal["white", "black"]
 GameResult = Literal["win", "loss", "draw", "aborted"]
 TimeControl = Literal["3+2", "5+0", "10+0", "10+3", "15+10"]
-GameType = Literal["chess", "sudoku", "tictactoe", "connect4", "othello"]
+GameType = Literal["chess", "sudoku", "tictactoe", "connect4", "othello", "minesweeper"]
 TicTacToeMark = Literal["X", "O"]
 Connect4Disc = Literal["R", "Y"]
 OthelloDisc = Literal["B", "W"]
 DiscWinner = Literal["R", "Y", "B", "W", "draw"]
+MineweeperBoardSize = Literal["small", "medium", "large"]
 
 DIFFICULTY_PROFILES = {
     "easy": {
@@ -140,6 +141,13 @@ class SaveGameRequest(BaseModel):
     othello_winner: DiscWinner | None = None
     othello_move_history: list[str] = Field(default_factory=list)
     othello_elapsed_seconds: int | None = None
+    minesweeper_board: str | None = None
+    minesweeper_board_size: MineweeperBoardSize | None = None
+    minesweeper_mines: str | None = None
+    minesweeper_revealed: str | None = None
+    minesweeper_flagged: str | None = None
+    minesweeper_winner: str | None = None
+    minesweeper_elapsed_seconds: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -170,6 +178,19 @@ class OthelloBestMoveRequest(BaseModel):
     board: str
     difficulty: DifficultyLevel = "medium"
     ai_disc: OthelloDisc = "W"
+
+
+class MinesweeperCreateRequest(BaseModel):
+    board_size: MineweeperBoardSize = "medium"
+
+
+class MinesweeperCreateResponse(BaseModel):
+    board: str
+    mines: str
+    rows: int
+    cols: int
+    mine_count: int
+    board_size: MineweeperBoardSize
 
 
 def serialize_user(doc: dict) -> UserPublic:
@@ -217,6 +238,13 @@ def serialize_game(doc: dict) -> dict:
         "othello_winner": doc.get("othello_winner"),
         "othello_move_history": doc.get("othello_move_history", []),
         "othello_elapsed_seconds": doc.get("othello_elapsed_seconds"),
+        "minesweeper_board": doc.get("minesweeper_board"),
+        "minesweeper_board_size": doc.get("minesweeper_board_size"),
+        "minesweeper_mines": doc.get("minesweeper_mines"),
+        "minesweeper_revealed": doc.get("minesweeper_revealed"),
+        "minesweeper_flagged": doc.get("minesweeper_flagged"),
+        "minesweeper_winner": doc.get("minesweeper_winner"),
+        "minesweeper_elapsed_seconds": doc.get("minesweeper_elapsed_seconds"),
         "started_at": doc.get("started_at"),
         "finished_at": doc.get("finished_at"),
         "created_at": doc.get("created_at"),
@@ -695,6 +723,110 @@ def pick_othello_move(board_str: str, difficulty: DifficultyLevel, ai_disc: str)
     return {"row": best_move[0], "col": best_move[1], "pass": False}
 
 
+# Minesweeper game logic
+MINESWEEPER_CONFIG = {
+    "small": {"rows": 8, "cols": 8, "mines": 10},
+    "medium": {"rows": 9, "cols": 9, "mines": 10},
+    "large": {"rows": 16, "cols": 30, "mines": 99},
+}
+
+
+def generate_minesweeper_board(board_size: MineweeperBoardSize) -> tuple[str, str]:
+    """Generate a new minesweeper board with mines randomly placed.
+    
+    Returns:
+        (board_str, mines_str) - board is empty cells (0-8 for adjacent mines), 
+        mines_str contains 'M' for mines, '-' for empty
+    """
+    config = MINESWEEPER_CONFIG[board_size]
+    rows, cols, num_mines = config["rows"], config["cols"], config["mines"]
+    total_cells = rows * cols
+    
+    # Generate random mine positions
+    mine_positions = set(random.sample(range(total_cells), min(num_mines, total_cells)))
+    
+    # Create mines board
+    mines = ['M' if i in mine_positions else '-' for i in range(total_cells)]
+    mines_str = "".join(mines)
+    
+    # Create board with mine counts
+    board = ['-'] * total_cells
+    for i in range(total_cells):
+        if mines[i] == 'M':
+            board[i] = 'M'
+        else:
+            # Count adjacent mines
+            row, col = i // cols, i % cols
+            mine_count = 0
+            for dr in [-1, 0, 1]:
+                for dc in [-1, 0, 1]:
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = row + dr, col + dc
+                    if 0 <= nr < rows and 0 <= nc < cols:
+                        idx = nr * cols + nc
+                        if mines[idx] == 'M':
+                            mine_count += 1
+            board[i] = str(mine_count) if mine_count > 0 else '0'
+    
+    board_str = "".join(board)
+    return board_str, mines_str
+
+
+def minesweeper_indices_from_str(s: str, rows: int, cols: int) -> str:
+    """Validate that a string represents valid cell indices for a board."""
+    if len(s) != rows * cols:
+        raise HTTPException(status_code=400, detail=f"Board must be {rows * cols} characters")
+    return s
+
+
+def minesweeper_get_adjacent(row: int, col: int, rows: int, cols: int) -> list[int]:
+    """Get indices of adjacent cells (excluding diagonals for neighbors)."""
+    indices = []
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nr, nc = row + dr, col + dc
+        if 0 <= nr < rows and 0 <= nc < cols:
+            indices.append(nr * cols + nc)
+    return indices
+
+
+def minesweeper_flood_fill(
+    board: list[str],
+    revealed: list[bool],
+    idx: int,
+    rows: int,
+    cols: int,
+) -> None:
+    """Flood fill unrevealed cells starting from idx (which must be safe).
+    Only spreads through cells with 0 adjacent mines.
+    """
+    if revealed[idx] or board[idx] == 'M':
+        return
+    
+    revealed[idx] = True
+    
+    # Only continue flooding if this cell has no adjacent mines
+    if board[idx] != '0':
+        return
+    
+    row, col = idx // cols, idx % cols
+    for adj_idx in minesweeper_get_adjacent(row, col, rows, cols):
+        if not revealed[adj_idx]:
+            minesweeper_flood_fill(board, revealed, adj_idx, rows, cols)
+
+
+def minesweeper_check_win(board: list[str], revealed: list[bool], flagged: list[bool], rows: int, cols: int) -> bool:
+    """Check if player has won: all non-mine cells revealed and all mines flagged."""
+    for i in range(rows * cols):
+        if board[i] == 'M':
+            if not flagged[i]:
+                return False
+        else:
+            if not revealed[i]:
+                return False
+    return True
+
+
 def create_app_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
@@ -709,6 +841,7 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(auth_scheme),
 ) -> dict:
     if credentials is None:
+        print("ERROR: No credentials provided")
         raise HTTPException(status_code=401, detail="Missing auth token")
 
     token = credentials.credentials
@@ -716,20 +849,28 @@ def get_current_user(
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("sub")
         if not user_id:
+            print("ERROR: No 'sub' in JWT payload")
             raise HTTPException(status_code=401, detail="Invalid auth token")
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        print(f"ERROR: JWT decode failed: {e}")
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+    except Exception as e:
+        print(f"ERROR: Unexpected error in JWT decode: {e}")
         raise HTTPException(status_code=401, detail="Invalid auth token")
 
     if users_collection is None:
+        print("ERROR: Database not configured")
         raise HTTPException(status_code=500, detail="Database is not configured")
 
     try:
         object_id = ObjectId(user_id)
-    except Exception:
+    except Exception as e:
+        print(f"ERROR: Failed to create ObjectId from user_id '{user_id}': {e}")
         raise HTTPException(status_code=401, detail="Invalid auth token")
 
     user = users_collection.find_one({"_id": object_id})
     if user is None:
+        print(f"ERROR: User not found for ObjectId {object_id}")
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
@@ -859,6 +1000,13 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="othello_board is required for othello games")
         if req.othello_player_disc is None:
             raise HTTPException(status_code=400, detail="othello_player_disc is required for othello games")
+    if req.game_type == "minesweeper":
+        if req.minesweeper_board is None:
+            raise HTTPException(status_code=400, detail="minesweeper_board is required for minesweeper games")
+        if req.minesweeper_revealed is None:
+            raise HTTPException(status_code=400, detail="minesweeper_revealed is required for minesweeper games")
+        if req.minesweeper_flagged is None:
+            raise HTTPException(status_code=400, detail="minesweeper_flagged is required for minesweeper games")
 
     now = datetime.now(timezone.utc)
     payload: dict = {
@@ -908,13 +1056,22 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             "connect4_move_history": req.connect4_move_history,
             "connect4_elapsed_seconds": req.connect4_elapsed_seconds,
         })
-    else:  # othello
+    elif req.game_type == "othello":
         payload.update({
             "othello_board": req.othello_board,
             "othello_player_disc": req.othello_player_disc,
             "othello_winner": req.othello_winner,
             "othello_move_history": req.othello_move_history,
             "othello_elapsed_seconds": req.othello_elapsed_seconds,
+        })
+    else:  # minesweeper
+        payload.update({
+            "minesweeper_board": req.minesweeper_board,
+            "minesweeper_mines": req.minesweeper_mines,
+            "minesweeper_revealed": req.minesweeper_revealed,
+            "minesweeper_flagged": req.minesweeper_flagged,
+            "minesweeper_winner": req.minesweeper_winner,
+            "minesweeper_elapsed_seconds": req.minesweeper_elapsed_seconds,
         })
     inserted = games_collection.insert_one(payload)
     return {"id": str(inserted.inserted_id)}
@@ -967,6 +1124,19 @@ def othello_best_move(req: OthelloBestMoveRequest):
     return {
         **pick_othello_move(req.board, req.difficulty, req.ai_disc),
         "difficulty": req.difficulty,
+    }
+
+@app.post("/minesweeper/new", response_model=MinesweeperCreateResponse)
+def minesweeper_new(req: MinesweeperCreateRequest):
+    board, mines = generate_minesweeper_board(req.board_size)
+    config = MINESWEEPER_CONFIG[req.board_size]
+    return {
+        "board": board,
+        "mines": mines,
+        "rows": config["rows"],
+        "cols": config["cols"],
+        "mine_count": config["mines"],
+        "board_size": req.board_size,
     }
 
 @app.post("/best-move")

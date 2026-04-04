@@ -58,12 +58,30 @@ export default function HistoryPage({
     return rows;
   }
 
+  function getMinesweeperCols(game: SavedGame): number {
+    const boardSize = game.minesweeper_board_size;
+    if (boardSize === "small") return 8;
+    if (boardSize === "medium") return 9;
+    if (boardSize === "large") return 30;
+
+    const boardLength = game.minesweeper_board?.length ?? 0;
+    if (boardLength === 64) return 8;
+    if (boardLength === 81) return 9;
+    if (boardLength === 480) return 30;
+
+    const sqrt = Math.sqrt(boardLength);
+    return Number.isInteger(sqrt) ? sqrt : 9;
+  }
+
   const selectedType = selectedGame?.game_type ?? "chess";
   const sudokuPuzzleRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_puzzle) : null;
   const sudokuUserRows = selectedType === "sudoku" ? toSudokuRows(selectedGame?.sudoku_user_grid) : null;
   const tttCells = selectedType === "tictactoe" ? (selectedGame?.tictactoe_board ?? "").split("") : [];
   const connect4Cells = selectedType === "connect4" ? (selectedGame?.connect4_board ?? "").split("") : [];
   const othelloCells = selectedType === "othello" ? (selectedGame?.othello_board ?? "").split("") : [];
+  const minesweeperBoard = selectedType === "minesweeper" ? (selectedGame?.minesweeper_board ?? "").split("") : [];
+  const minesweeperRevealed = selectedType === "minesweeper" ? (selectedGame?.minesweeper_revealed ?? "").split("").map(c => c === "1") : [];
+  const minesweeperFlagged = selectedType === "minesweeper" ? (selectedGame?.minesweeper_flagged ?? "").split("").map(c => c === "1") : [];
 
   return (
     <section className="history-page">
@@ -87,6 +105,7 @@ export default function HistoryPage({
             <option value="tictactoe">Tic Tac Toe</option>
             <option value="connect4">Connect 4</option>
             <option value="othello">Othello</option>
+            <option value="minesweeper">Minesweeper</option>
           </select>
         </label>
         <label>
@@ -173,11 +192,16 @@ export default function HistoryPage({
                         <span>Winner: <strong>{g.connect4_winner ?? "-"}</strong></span>
                         <span>Moves: <strong>{g.connect4_move_history?.length ?? 0}</strong></span>
                       </>
-                    ) : (
+                    ) : (g.game_type ?? "chess") === "othello" ? (
                       <>
                         <span>Duration: <strong>{g.othello_elapsed_seconds !== undefined ? `${g.othello_elapsed_seconds}s` : "-"}</strong></span>
                         <span>Winner: <strong>{g.othello_winner ?? "-"}</strong></span>
                         <span>Moves: <strong>{g.othello_move_history?.length ?? 0}</strong></span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Duration: <strong>{g.minesweeper_elapsed_seconds !== undefined ? `${g.minesweeper_elapsed_seconds}s` : "-"}</strong></span>
+                        <span>Result: <strong>{g.minesweeper_winner ? "Won" : "Lost"}</strong></span>
                       </>
                     )}
                   </div>
@@ -199,7 +223,9 @@ export default function HistoryPage({
                       ? "Tic Tac Toe Summary"
                       : selectedType === "connect4"
                         ? "Connect 4 Summary"
-                        : "Othello Summary"}
+                        : selectedType === "othello"
+                          ? "Othello Summary"
+                          : "Minesweeper Summary"}
               </h3>
               <div className="history-summary">
                 <span className={`result-pill result-${selectedGame.result}`}>{resultLabel(selectedGame.result)}</span>
@@ -237,11 +263,16 @@ export default function HistoryPage({
                     <span>Connect 4 Time: <strong>{selectedGame.connect4_elapsed_seconds !== undefined ? `${selectedGame.connect4_elapsed_seconds}s` : "-"}</strong></span>
                     <span>Winner: <strong>{selectedGame.connect4_winner ?? "-"}</strong></span>
                   </>
-                ) : (
+                ) : selectedType === "othello" ? (
                   <>
                     <span>Difficulty: <strong>{toLabel(selectedGame.difficulty)}</strong></span>
                     <span>Othello Time: <strong>{selectedGame.othello_elapsed_seconds !== undefined ? `${selectedGame.othello_elapsed_seconds}s` : "-"}</strong></span>
                     <span>Winner: <strong>{selectedGame.othello_winner ?? "-"}</strong></span>
+                  </>
+                ) : (
+                  <>
+                    <span>Minesweeper Time: <strong>{selectedGame.minesweeper_elapsed_seconds !== undefined ? `${selectedGame.minesweeper_elapsed_seconds}s` : "-"}</strong></span>
+                    <span>Result: <strong>{selectedGame.minesweeper_winner ? "Victory" : "Defeat"}</strong></span>
                   </>
                 )}
               </div>
@@ -376,6 +407,43 @@ export default function HistoryPage({
                       ))}
                     </div>
                   )}
+                </>
+              )}
+              {selectedType === "minesweeper" && minesweeperBoard.length > 0 && (
+                <>
+                  <div
+                    className="minesweeper-history-board"
+                    style={{ "--cols": `${getMinesweeperCols(selectedGame)}` } as React.CSSProperties}
+                  >
+                    {minesweeperBoard.map((cell, idx) => {
+                      const isRevealed = minesweeperRevealed[idx];
+                      const isFlagged = minesweeperFlagged[idx];
+                      let cellContent = "";
+                      let cellClass = "cell";
+
+                      if (isFlagged) {
+                        cellContent = "🚩";
+                        cellClass += " flagged";
+                      } else if (isRevealed) {
+                        cellClass += " revealed";
+                        if (cell === "M") {
+                          cellContent = "💣";
+                          cellClass += " mine";
+                        } else if (cell === "0") {
+                          cellContent = "";
+                        } else {
+                          cellContent = cell;
+                          cellClass += ` adjacent-${cell}`;
+                        }
+                      }
+
+                      return (
+                        <div className={cellClass} key={`minesweeper-cell-${idx}`}>
+                          {cellContent}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </>
               )}
             </>
