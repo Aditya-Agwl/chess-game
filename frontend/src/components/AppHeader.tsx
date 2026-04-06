@@ -4,15 +4,11 @@ type Props = {
   user: AuthUser | null;
   showUserMenu: boolean;
   onToggleUserMenu: () => void;
+  onGoProfile: () => void;
+  onGoUsers: () => void;
+  onGoFriends: () => void;
   onGoHome: () => void;
   onGoHistory: () => void;
-  onGoPlay: () => void;
-  onGoSudoku: () => void;
-  onGoTicTacToe: () => void;
-  onGoConnectFour: () => void;
-  onGoOthello: () => void;
-  onGoMinesweeper: () => void;
-  onGo2048: () => void;
   onLogout: () => void;
 };
 
@@ -20,15 +16,11 @@ export default function AppHeader({
   user,
   showUserMenu,
   onToggleUserMenu,
+  onGoProfile,
+  onGoUsers,
+  onGoFriends,
   onGoHome,
   onGoHistory,
-  onGoPlay,
-  onGoSudoku,
-  onGoTicTacToe,
-  onGoConnectFour,
-  onGoOthello,
-  onGoMinesweeper,
-  onGo2048,
   onLogout,
 }: Props) {
   return (
@@ -57,15 +49,15 @@ export default function AppHeader({
             </button>
             {showUserMenu && (
               <div className="user-menu">
+                <div className="user-menu-profile">
+                  <strong>{user.name}</strong>
+                  <span>{user.email}</span>
+                </div>
+                <button className="user-menu-item" onClick={onGoProfile}>My Profile</button>
+                <button className="user-menu-item" onClick={onGoUsers}>Find Users</button>
+                <button className="user-menu-item" onClick={onGoFriends}>Friends & Requests</button>
                 <button className="user-menu-item" onClick={onGoHome}>Home</button>
                 <button className="user-menu-item" onClick={onGoHistory}>Analyze Games</button>
-                <button className="user-menu-item" onClick={onGoPlay}>Play Chess</button>
-                <button className="user-menu-item" onClick={onGoSudoku}>Play Sudoku</button>
-                <button className="user-menu-item" onClick={onGoTicTacToe}>Play Tic Tac Toe</button>
-                <button className="user-menu-item" onClick={onGoConnectFour}>Play Connect 4</button>
-                <button className="user-menu-item" onClick={onGoOthello}>Play Othello</button>
-                <button className="user-menu-item" onClick={onGoMinesweeper}>Play Minesweeper</button>
-                <button className="user-menu-item" onClick={onGo2048}>Play 2048</button>
                 <button className="btn btn-light" onClick={onLogout}>Sign Out</button>
               </div>
             )}

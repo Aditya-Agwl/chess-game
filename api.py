@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta, timezone
 import random
 from typing import Literal
@@ -101,10 +102,26 @@ class UserPublic(BaseModel):
     picture: str | None = None
 
 
+class UserSummary(BaseModel):
+    id: str
+    email: str
+    name: str
+    picture: str | None = None
+    relation: Literal["self", "friend", "incoming_request", "outgoing_request", "none"] = "none"
+
+
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserPublic
+
+
+class FriendRequestCreate(BaseModel):
+    target_user_id: str
+
+
+class FriendRequestAction(BaseModel):
+    action: Literal["accept", "reject"]
 
 
 class SaveGameRequest(BaseModel):
@@ -205,6 +222,73 @@ def serialize_user(doc: dict) -> UserPublic:
         name=doc.get("name", ""),
         picture=doc.get("picture"),
     )
+
+
+def serialize_user_summary(
+    doc: dict,
+    relation: Literal["self", "friend", "incoming_request", "outgoing_request", "none"] = "none",
+) -> UserSummary:
+    return UserSummary(
+        id=str(doc["_id"]),
+        email=doc.get("email", ""),
+        name=doc.get("name", ""),
+        picture=doc.get("picture"),
+        relation=relation,
+    )
+
+
+def parse_object_id(value: str, *, field_name: str = "id") -> ObjectId:
+    try:
+        return ObjectId(value)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}")
+
+
+def normalize_social_fields(user_doc: dict) -> dict:
+    if users_collection is None:
+        return user_doc
+
+    updates: dict = {}
+    for field in ["friend_ids", "friend_request_incoming_ids", "friend_request_outgoing_ids"]:
+        if not isinstance(user_doc.get(field), list):
+            updates[field] = []
+
+    if updates:
+        users_collection.update_one({"_id": user_doc["_id"]}, {"$set": updates})
+        user_doc = {**user_doc, **updates}
+
+    return user_doc
+
+
+def to_object_id_set(values: list) -> set[ObjectId]:
+    ids: set[ObjectId] = set()
+    for value in values:
+        if isinstance(value, ObjectId):
+            ids.add(value)
+            continue
+        try:
+            ids.add(ObjectId(str(value)))
+        except Exception:
+            continue
+    return ids
+
+
+def relation_to_user(current_user: dict, target_user_id: ObjectId) -> Literal["self", "friend", "incoming_request", "outgoing_request", "none"]:
+    current_id = current_user["_id"]
+    if current_id == target_user_id:
+        return "self"
+
+    friends = to_object_id_set(current_user.get("friend_ids", []))
+    incoming = to_object_id_set(current_user.get("friend_request_incoming_ids", []))
+    outgoing = to_object_id_set(current_user.get("friend_request_outgoing_ids", []))
+
+    if target_user_id in friends:
+        return "friend"
+    if target_user_id in incoming:
+        return "incoming_request"
+    if target_user_id in outgoing:
+        return "outgoing_request"
+    return "none"
 
 
 def serialize_game(doc: dict) -> dict:
@@ -882,7 +966,7 @@ def get_current_user(
     if user is None:
         print(f"ERROR: User not found for ObjectId {object_id}")
         raise HTTPException(status_code=401, detail="User not found")
-    return user
+    return normalize_social_fields(user)
 
 
 def configure_engine_for_difficulty(level: DifficultyLevel):
@@ -908,6 +992,7 @@ def startup():
         games_collection = mongo_db["games"]
         users_collection.create_index([("google_sub", ASCENDING)], unique=True)
         users_collection.create_index([("email", ASCENDING)], unique=True)
+        users_collection.create_index([("name", ASCENDING)])
         games_collection.create_index([("user_id", ASCENDING), ("finished_at", DESCENDING)])
         games_collection.create_index([("user_id", ASCENDING), ("game_type", ASCENDING), ("finished_at", DESCENDING)])
     else:
@@ -962,6 +1047,9 @@ def auth_google(req: GoogleAuthRequest):
             },
             "$setOnInsert": {
                 "created_at": now,
+                "friend_ids": [],
+                "friend_request_incoming_ids": [],
+                "friend_request_outgoing_ids": [],
             },
         },
         upsert=True,
@@ -978,6 +1066,238 @@ def auth_google(req: GoogleAuthRequest):
 @app.get("/me", response_model=UserPublic)
 def me(user: dict = Depends(get_current_user)):
     return serialize_user(user)
+
+
+@app.get("/profile")
+def profile(user: dict = Depends(get_current_user)):
+    friends = to_object_id_set(user.get("friend_ids", []))
+    incoming = to_object_id_set(user.get("friend_request_incoming_ids", []))
+    outgoing = to_object_id_set(user.get("friend_request_outgoing_ids", []))
+    return {
+        "user": serialize_user(user),
+        "friends_count": len(friends),
+        "incoming_requests_count": len(incoming),
+        "outgoing_requests_count": len(outgoing),
+        "created_at": user.get("created_at"),
+    }
+
+
+@app.get("/users")
+def list_users(q: str = "", limit: int = 30, user: dict = Depends(get_current_user)):
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database is not configured")
+
+    safe_limit = max(1, min(limit, 100))
+    query: dict = {"_id": {"$ne": user["_id"]}}
+
+    clean_q = q.strip()
+    if clean_q:
+        pattern = re.escape(clean_q)
+        query["$or"] = [
+            {"name": {"$regex": pattern, "$options": "i"}},
+            {"email": {"$regex": pattern, "$options": "i"}},
+        ]
+
+    docs = users_collection.find(query).sort("name", ASCENDING).limit(safe_limit)
+    return {
+        "query": clean_q,
+        "users": [
+            serialize_user_summary(doc, relation_to_user(user, doc["_id"]))
+            for doc in docs
+        ],
+    }
+
+
+@app.get("/friends")
+def list_friends(user: dict = Depends(get_current_user)):
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database is not configured")
+
+    friend_ids = list(to_object_id_set(user.get("friend_ids", [])))
+    incoming_ids = list(to_object_id_set(user.get("friend_request_incoming_ids", [])))
+    outgoing_ids = list(to_object_id_set(user.get("friend_request_outgoing_ids", [])))
+
+    friend_docs = users_collection.find({"_id": {"$in": friend_ids}}).sort("name", ASCENDING)
+    incoming_docs = users_collection.find({"_id": {"$in": incoming_ids}}).sort("name", ASCENDING)
+    outgoing_docs = users_collection.find({"_id": {"$in": outgoing_ids}}).sort("name", ASCENDING)
+
+    return {
+        "friends": [serialize_user_summary(doc, "friend") for doc in friend_docs],
+        "incoming_requests": [serialize_user_summary(doc, "incoming_request") for doc in incoming_docs],
+        "outgoing_requests": [serialize_user_summary(doc, "outgoing_request") for doc in outgoing_docs],
+    }
+
+
+@app.post("/friends/requests")
+def send_friend_request(req: FriendRequestCreate, user: dict = Depends(get_current_user)):
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database is not configured")
+
+    source_id = user["_id"]
+    target_id = parse_object_id(req.target_user_id, field_name="target_user_id")
+    if source_id == target_id:
+        raise HTTPException(status_code=400, detail="You cannot send a friend request to yourself")
+
+    target_user = users_collection.find_one({"_id": target_id})
+    if target_user is None:
+        raise HTTPException(status_code=404, detail="Target user not found")
+
+    target_user = normalize_social_fields(target_user)
+
+    source_friends = to_object_id_set(user.get("friend_ids", []))
+    source_incoming = to_object_id_set(user.get("friend_request_incoming_ids", []))
+    source_outgoing = to_object_id_set(user.get("friend_request_outgoing_ids", []))
+
+    if target_id in source_friends:
+        raise HTTPException(status_code=400, detail="You are already friends")
+    if target_id in source_outgoing:
+        raise HTTPException(status_code=400, detail="Friend request already sent")
+
+    if target_id in source_incoming:
+        users_collection.update_one(
+            {"_id": source_id},
+            {
+                "$addToSet": {"friend_ids": target_id},
+                "$pull": {
+                    "friend_request_incoming_ids": target_id,
+                    "friend_request_outgoing_ids": target_id,
+                },
+            },
+        )
+        users_collection.update_one(
+            {"_id": target_id},
+            {
+                "$addToSet": {"friend_ids": source_id},
+                "$pull": {
+                    "friend_request_incoming_ids": source_id,
+                    "friend_request_outgoing_ids": source_id,
+                },
+            },
+        )
+        return {
+            "status": "accepted",
+            "detail": "Existing incoming request accepted and friendship created",
+            "friend": serialize_user_summary(target_user, "friend"),
+        }
+
+    users_collection.update_one(
+        {"_id": source_id},
+        {"$addToSet": {"friend_request_outgoing_ids": target_id}},
+    )
+    users_collection.update_one(
+        {"_id": target_id},
+        {"$addToSet": {"friend_request_incoming_ids": source_id}},
+    )
+
+    return {
+        "status": "requested",
+        "detail": "Friend request sent",
+        "user": serialize_user_summary(target_user, "outgoing_request"),
+    }
+
+
+@app.post("/friends/requests/{from_user_id}")
+def respond_to_friend_request(
+    from_user_id: str,
+    req: FriendRequestAction,
+    user: dict = Depends(get_current_user),
+):
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database is not configured")
+
+    source_id = parse_object_id(from_user_id, field_name="from_user_id")
+    target_id = user["_id"]
+
+    incoming = to_object_id_set(user.get("friend_request_incoming_ids", []))
+    if source_id not in incoming:
+        raise HTTPException(status_code=400, detail="No incoming request from this user")
+
+    if req.action == "accept":
+        users_collection.update_one(
+            {"_id": target_id},
+            {
+                "$addToSet": {"friend_ids": source_id},
+                "$pull": {"friend_request_incoming_ids": source_id},
+            },
+        )
+        users_collection.update_one(
+            {"_id": source_id},
+            {
+                "$addToSet": {"friend_ids": target_id},
+                "$pull": {"friend_request_outgoing_ids": target_id},
+            },
+        )
+        return {"status": "accepted", "detail": "Friend request accepted"}
+
+    users_collection.update_one(
+        {"_id": target_id},
+        {"$pull": {"friend_request_incoming_ids": source_id}},
+    )
+    users_collection.update_one(
+        {"_id": source_id},
+        {"$pull": {"friend_request_outgoing_ids": target_id}},
+    )
+    return {"status": "rejected", "detail": "Friend request rejected"}
+
+
+@app.delete("/friends/requests/{to_user_id}")
+def cancel_friend_request(to_user_id: str, user: dict = Depends(get_current_user)):
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database is not configured")
+
+    target_id = parse_object_id(to_user_id, field_name="to_user_id")
+    source_id = user["_id"]
+
+    outgoing = to_object_id_set(user.get("friend_request_outgoing_ids", []))
+    if target_id not in outgoing:
+        raise HTTPException(status_code=400, detail="No outgoing request for this user")
+
+    users_collection.update_one(
+        {"_id": source_id},
+        {"$pull": {"friend_request_outgoing_ids": target_id}},
+    )
+    users_collection.update_one(
+        {"_id": target_id},
+        {"$pull": {"friend_request_incoming_ids": source_id}},
+    )
+    return {"status": "cancelled", "detail": "Friend request cancelled"}
+
+
+@app.delete("/friends/{friend_user_id}")
+def unfriend_user(friend_user_id: str, user: dict = Depends(get_current_user)):
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database is not configured")
+
+    friend_id = parse_object_id(friend_user_id, field_name="friend_user_id")
+    user_id = user["_id"]
+    if user_id == friend_id:
+        raise HTTPException(status_code=400, detail="You cannot unfriend yourself")
+
+    current_friends = to_object_id_set(user.get("friend_ids", []))
+    if friend_id not in current_friends:
+        raise HTTPException(status_code=400, detail="This user is not in your friends list")
+
+    users_collection.update_one(
+        {"_id": user_id},
+        {
+            "$pull": {
+                "friend_ids": friend_id,
+                "friend_request_incoming_ids": friend_id,
+                "friend_request_outgoing_ids": friend_id,
+            },
+        },
+    )
+    users_collection.update_one(
+        {"_id": friend_id},
+        {
+            "$pull": {
+                "friend_ids": user_id,
+                "friend_request_incoming_ids": user_id,
+                "friend_request_outgoing_ids": user_id,
+            },
+        },
+    )
+    return {"status": "unfriended", "detail": "Friend removed"}
 
 
 @app.post("/games")

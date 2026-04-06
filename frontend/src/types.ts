@@ -17,6 +17,28 @@ export type AuthUser = {
   picture?: string | null;
 };
 
+export type FriendRelation = "self" | "friend" | "incoming_request" | "outgoing_request" | "none";
+
+export type SocialUser = AuthUser & {
+  relation: FriendRelation;
+};
+
+export type SocialOverview = {
+  friends: SocialUser[];
+  incoming_requests: SocialUser[];
+  outgoing_requests: SocialUser[];
+};
+
+export type ProfileSummary = {
+  user: AuthUser;
+  friends_count: number;
+  incoming_requests_count: number;
+  outgoing_requests_count: number;
+  created_at?: string;
+};
+
+export type FriendActionType = "add" | "accept" | "reject" | "cancel" | "unfriend";
+
 export type SavedGame = {
   id: string;
   game_type?: GameType;

@@ -7,6 +7,7 @@ import type { CredentialResponse } from "@react-oauth/google";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import AppHeader from "./components/AppHeader";
 import AuthModal from "./components/modals/AuthModal";
+import ConfirmActionModal from "./components/modals/ConfirmActionModal";
 import GameOverModal from "./components/modals/GameOverModal";
 import ConnectFourPage from "./components/pages/ConnectFourPage";
 import HistoryPage from "./components/pages/HistoryPage";
@@ -16,16 +17,23 @@ import Game2048Page from "./components/pages/2048Page";
 import MinesweeperPage from "./components/pages/MinesweeperPage";
 import OthelloPage from "./components/pages/OthelloPage";
 import PlaySetupPage from "./components/pages/PlaySetupPage";
+import ProfilePage from "./components/pages/ProfilePage";
 import SudokuPage from "./components/pages/SudokuPage";
 import TicTacToePage from "./components/pages/TicTacToePage";
+import UsersPage from "./components/pages/UsersPage";
+import FriendsPage from "./components/pages/FriendsPage";
 import type {
   AuthUser,
   DifficultyLevel,
+  FriendActionType,
   GameType,
   GameOverModalState,
   GameResult,
   PlayerColor,
+  ProfileSummary,
   SavedGame,
+  SocialOverview,
+  SocialUser,
   TimeControl,
 } from "./types";
 import { formatDate, movePairs, resultLabel, toLabel } from "./utils/gameFormat";
@@ -111,6 +119,15 @@ function AppInner() {
 
   const [authLoading, setAuthLoading] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const [socialLoading, setSocialLoading] = useState(false);
+  const [socialError, setSocialError] = useState("");
+  const [profileSummary, setProfileSummary] = useState<ProfileSummary | null>(null);
+  const [usersSearchText, setUsersSearchText] = useState("");
+  const [usersList, setUsersList] = useState<SocialUser[]>([]);
+  const [friendsOverview, setFriendsOverview] = useState<SocialOverview | null>(null);
+  const [actionLoadingById, setActionLoadingById] = useState<Record<string, FriendActionType | undefined>>({});
+  const [pendingUnfriendUser, setPendingUnfriendUser] = useState<SocialUser | null>(null);
 
   const [gamesLoading, setGamesLoading] = useState(false);
   const [gamesError, setGamesError] = useState("");
@@ -369,9 +386,219 @@ function AppInner() {
     }
   }
 
+  async function loadProfileSummary() {
+    if (!authToken) return;
+    setSocialLoading(true);
+    setSocialError("");
+    try {
+      const res = await fetch(API_BASE + "/profile", {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data: ProfileSummary & { detail?: string } = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Could not fetch profile");
+      }
+      setProfileSummary(data);
+    } catch (e: unknown) {
+      setSocialError(e instanceof Error ? e.message : "Could not fetch profile");
+    } finally {
+      setSocialLoading(false);
+    }
+  }
+
+  async function loadUsers(query?: string) {
+    if (!authToken) return;
+    setSocialLoading(true);
+    setSocialError("");
+    try {
+      const q = (query ?? usersSearchText).trim();
+      const qs = q ? `?limit=80&q=${encodeURIComponent(q)}` : "?limit=80";
+      const res = await fetch(API_BASE + "/users" + qs, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data: { users?: SocialUser[]; detail?: string } = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Could not fetch users");
+      }
+      setUsersList(data.users ?? []);
+    } catch (e: unknown) {
+      setSocialError(e instanceof Error ? e.message : "Could not fetch users");
+    } finally {
+      setSocialLoading(false);
+    }
+  }
+
+  async function loadFriendsOverview() {
+    if (!authToken) return;
+    setSocialLoading(true);
+    setSocialError("");
+    try {
+      const res = await fetch(API_BASE + "/friends", {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data: (SocialOverview & { detail?: string }) = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Could not fetch friends");
+      }
+      setFriendsOverview(data);
+    } catch (e: unknown) {
+      setSocialError(e instanceof Error ? e.message : "Could not fetch friends");
+    } finally {
+      setSocialLoading(false);
+    }
+  }
+
+  function setActionLoading(userId: string, action: FriendActionType | undefined) {
+    setActionLoadingById((prev) => ({ ...prev, [userId]: action }));
+  }
+
+  async function withSocialRefresh(action: () => Promise<void>) {
+    await action();
+    await Promise.all([
+      loadProfileSummary(),
+      loadUsers(),
+      loadFriendsOverview(),
+    ]);
+  }
+
+  async function sendFriendRequest(targetUserId: string) {
+    if (!authToken) return;
+    setActionLoading(targetUserId, "add");
+    setSocialError("");
+    try {
+      await withSocialRefresh(async () => {
+        const res = await fetch(API_BASE + "/friends/requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ target_user_id: targetUserId }),
+        });
+        const data: { detail?: string } = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Could not send request");
+        }
+      });
+    } catch (e: unknown) {
+      setSocialError(e instanceof Error ? e.message : "Could not send request");
+    } finally {
+      setActionLoading(targetUserId, undefined);
+    }
+  }
+
+  async function respondToRequest(fromUserId: string, action: "accept" | "reject") {
+    if (!authToken) return;
+    setActionLoading(fromUserId, action);
+    setSocialError("");
+    try {
+      await withSocialRefresh(async () => {
+        const res = await fetch(API_BASE + `/friends/requests/${fromUserId}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ action }),
+        });
+        const data: { detail?: string } = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || `Could not ${action} request`);
+        }
+      });
+    } catch (e: unknown) {
+      setSocialError(e instanceof Error ? e.message : `Could not ${action} request`);
+    } finally {
+      setActionLoading(fromUserId, undefined);
+    }
+  }
+
+  async function cancelOutgoingRequest(toUserId: string) {
+    if (!authToken) return;
+    setActionLoading(toUserId, "cancel");
+    setSocialError("");
+    try {
+      await withSocialRefresh(async () => {
+        const res = await fetch(API_BASE + `/friends/requests/${toUserId}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+        const data: { detail?: string } = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Could not cancel request");
+        }
+      });
+    } catch (e: unknown) {
+      setSocialError(e instanceof Error ? e.message : "Could not cancel request");
+    } finally {
+      setActionLoading(toUserId, undefined);
+    }
+  }
+
+  async function unfriendUser(friendUserId: string): Promise<boolean> {
+    if (!authToken) return false;
+    setActionLoading(friendUserId, "unfriend");
+    setSocialError("");
+    try {
+      await withSocialRefresh(async () => {
+        const res = await fetch(API_BASE + `/friends/${friendUserId}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+        const data: { detail?: string } = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Could not remove friend");
+        }
+      });
+      return true;
+    } catch (e: unknown) {
+      setSocialError(e instanceof Error ? e.message : "Could not remove friend");
+      return false;
+    } finally {
+      setActionLoading(friendUserId, undefined);
+    }
+  }
+
+  function requestUnfriend(userToRemove: SocialUser) {
+    setPendingUnfriendUser(userToRemove);
+  }
+
+  async function confirmUnfriend() {
+    if (!pendingUnfriendUser) return;
+    const ok = await unfriendUser(pendingUnfriendUser.id);
+    if (ok) {
+      setPendingUnfriendUser(null);
+    }
+  }
+
   function openRecentGamesPage() {
     setShowUserMenu(false);
     navigate("/history");
+  }
+
+  function openProfilePage() {
+    setShowUserMenu(false);
+    navigate("/profile");
+  }
+
+  function openUsersPage() {
+    setShowUserMenu(false);
+    navigate("/users");
+  }
+
+  function openFriendsPage() {
+    setShowUserMenu(false);
+    navigate("/friends");
   }
 
   async function saveGameIfNeeded(g: Chess, forcedResult?: GameResult, historyOverride?: string[]) {
@@ -464,6 +691,13 @@ function AppInner() {
     setShowUserMenu(false);
     navigate("/");
     setRecentGames([]);
+    setProfileSummary(null);
+    setUsersList([]);
+    setFriendsOverview(null);
+    setUsersSearchText("");
+    setActionLoadingById({});
+    setPendingUnfriendUser(null);
+    setSocialError("");
     setSelectedGameId("");
     setGamesError("");
     localStorage.removeItem(TOKEN_KEY);
@@ -888,6 +1122,15 @@ function AppInner() {
     if (location.pathname === "/history" && authToken) {
       void fetchRecentGames();
     }
+    if (location.pathname === "/profile" && authToken) {
+      void loadProfileSummary();
+    }
+    if (location.pathname === "/users" && authToken) {
+      void loadUsers();
+    }
+    if (location.pathname === "/friends" && authToken) {
+      void loadFriendsOverview();
+    }
   }, [location.pathname, authToken]);
 
   useEffect(() => {
@@ -903,15 +1146,11 @@ function AppInner() {
           user={user}
           showUserMenu={showUserMenu}
           onToggleUserMenu={() => setShowUserMenu((prev) => !prev)}
+          onGoProfile={openProfilePage}
+          onGoUsers={openUsersPage}
+          onGoFriends={openFriendsPage}
           onGoHome={() => navigate("/")}
           onGoHistory={openRecentGamesPage}
-          onGoPlay={() => navigate("/chess")}
-          onGoSudoku={() => navigate("/sudoku")}
-          onGoTicTacToe={() => navigate("/tictactoe")}
-          onGoConnectFour={() => navigate("/connect4")}
-          onGoOthello={() => navigate("/othello/settings/mode")}
-          onGoMinesweeper={() => navigate("/minesweeper/settings")}
-          onGo2048={() => navigate("/2048/settings")}
           onLogout={handleLogout}
         />
 
@@ -927,6 +1166,58 @@ function AppInner() {
                 onPlayOthello={() => navigate("/othello/settings/mode")}
                 onPlayMinesweeper={() => navigate("/minesweeper/settings")}
                 onPlay2048={() => navigate("/2048/settings")}
+              />
+            )}
+          />
+
+          <Route
+            path="/profile"
+            element={(
+              <ProfilePage
+                user={user}
+                profile={profileSummary}
+                loading={socialLoading}
+                error={socialError}
+                onRefresh={() => void loadProfileSummary()}
+                onOpenUsers={openUsersPage}
+                onOpenFriends={openFriendsPage}
+              />
+            )}
+          />
+
+          <Route
+            path="/users"
+            element={(
+              <UsersPage
+                users={usersList}
+                searchText={usersSearchText}
+                loading={socialLoading}
+                error={socialError}
+                actionLoadingById={actionLoadingById}
+                onChangeSearchText={setUsersSearchText}
+                onSearch={() => void loadUsers()}
+                onAddFriend={(userId) => void sendFriendRequest(userId)}
+                onAcceptRequest={(userId) => void respondToRequest(userId, "accept")}
+                onRejectRequest={(userId) => void respondToRequest(userId, "reject")}
+                onCancelRequest={(userId) => void cancelOutgoingRequest(userId)}
+                onUnfriend={requestUnfriend}
+              />
+            )}
+          />
+
+          <Route
+            path="/friends"
+            element={(
+              <FriendsPage
+                overview={friendsOverview}
+                loading={socialLoading}
+                error={socialError}
+                actionLoadingById={actionLoadingById}
+                onRefresh={() => void loadFriendsOverview()}
+                onAcceptRequest={(userId) => void respondToRequest(userId, "accept")}
+                onRejectRequest={(userId) => void respondToRequest(userId, "reject")}
+                onCancelRequest={(userId) => void cancelOutgoingRequest(userId)}
+                onUnfriend={requestUnfriend}
               />
             )}
           />
@@ -1162,6 +1453,12 @@ function AppInner() {
         <footer className="hint-line">
           {location.pathname === "/"
             ? "Pick Chess, Sudoku, Tic Tac Toe, Connect 4, Othello, or Minesweeper to jump into your game universe."
+            : location.pathname === "/profile"
+              ? "This is your player profile. Use it to track your friend network before play-a-friend arrives."
+            : location.pathname === "/users"
+              ? "Search players, send friend requests, and accept incoming invites."
+            : location.pathname === "/friends"
+              ? "Manage accepted friends and pending requests from one place."
             : location.pathname === "/sudoku"
               ? "Use the number pad to fill cells. Every completed puzzle is stored in your history."
               : location.pathname === "/tictactoe"
@@ -1184,6 +1481,17 @@ function AppInner() {
         modal={gameOverModal}
         onNewGame={resetBoard}
         onClose={() => setGameOverModal((prev) => ({ ...prev, visible: false }))}
+      />
+
+      <ConfirmActionModal
+        visible={Boolean(pendingUnfriendUser)}
+        title="Remove Friend"
+        message={pendingUnfriendUser ? `Remove ${pendingUnfriendUser.name} from your friends list?` : ""}
+        confirmLabel="Yes, Unfriend"
+        cancelLabel="Cancel"
+        confirmBusy={Boolean(pendingUnfriendUser && actionLoadingById[pendingUnfriendUser.id] === "unfriend")}
+        onConfirm={() => void confirmUnfriend()}
+        onCancel={() => setPendingUnfriendUser(null)}
       />
 
       {needsAuth && (
