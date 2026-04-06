@@ -316,17 +316,20 @@ body {
 
 .home-stage {
   margin-top: 24px;
-  min-height: 72vh;
+  min-height: 74vh;
   display: grid;
-  place-items: center;
+  gap: 18px;
+  justify-items: stretch;
+  align-content: center;
+  padding: 28px 24px;
   position: relative;
   overflow: hidden;
   border: 1px solid rgba(160, 132, 86, 0.24);
   border-radius: 26px;
   background:
-    radial-gradient(circle at 16% 12%, rgba(208, 152, 72, 0.24), transparent 34%),
-    radial-gradient(circle at 84% 86%, rgba(110, 54, 40, 0.18), transparent 38%),
-    linear-gradient(140deg, rgba(255, 252, 245, 0.74), rgba(244, 235, 220, 0.8));
+    radial-gradient(circle at 12% 18%, rgba(208, 152, 72, 0.08), transparent 28%),
+    radial-gradient(circle at 88% 82%, rgba(110, 54, 40, 0.06), transparent 32%),
+    linear-gradient(140deg, rgba(255, 252, 247, 0.96), rgba(246, 240, 232, 0.98));
   box-shadow: var(--shadow);
 }
 
@@ -337,67 +340,99 @@ body {
   background:
     linear-gradient(90deg, rgba(106, 83, 52, 0.08) 1px, transparent 1px),
     linear-gradient(rgba(106, 83, 52, 0.08) 1px, transparent 1px);
-  background-size: 52px 52px;
-  opacity: 0.24;
+  background-size: 60px 60px;
+  opacity: 0.12;
   mask-image: radial-gradient(circle at center, black 36%, transparent 100%);
   z-index: 0;
 }
 
-.home-card {
-  width: min(560px, 100%);
-  margin-top: 0;
+.home-hero {
+  width: min(980px, 100%);
+  margin-inline: auto;
   position: relative;
   z-index: 2;
-  backdrop-filter: blur(4px);
-  border-color: rgba(145, 111, 66, 0.45);
-  box-shadow: 0 30px 60px rgba(49, 30, 10, 0.22);
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 18px;
+  padding: 0 8px;
 }
 
-.mode-actions {
-  margin-top: 20px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.home-hero-copy {
+  max-width: 520px;
 }
 
-.mode-actions-vertical {
-  grid-template-columns: 1fr;
+.home-eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font: 700 0.72rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+  color: #8b6a42;
 }
 
-.mode-actions-vertical .btn {
-  width: 100%;
-  min-height: 60px;
+.home-hero h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  letter-spacing: -0.03em;
+}
+
+.home-summary {
+  margin: 10px 0 0;
+  max-width: 54ch;
+  color: #5f584f;
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+
+.home-grid {
+  width: min(980px, 100%);
+  margin-inline: auto;
   margin-top: 0;
-  border-radius: 16px;
-  font-size: 1rem;
-}
-
-.game-universe-grid {
-  margin-top: 16px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+  position: relative;
+  z-index: 2;
 }
 
-.universe-card {
-  border: 1px solid #d8c3a2;
-  border-radius: 16px;
-  background: linear-gradient(165deg, #fff7e6, #f5e2be);
-  padding: 14px;
+.home-card-item {
+  position: relative;
+  overflow: hidden;
+  min-height: 156px;
+  border: 1px solid #daccb8;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.62), transparent 36%),
+    linear-gradient(165deg, #fffdf9, #f5efe4);
+  padding: 18px;
   display: grid;
   gap: 8px;
   text-align: left;
   color: #2b1f14;
   cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
 
-.universe-card strong {
-  font-size: 1.3rem;
+.home-card-item strong {
+  font-size: 1.05rem;
 }
 
-.universe-card span {
-  font-size: 0.86rem;
-  color: #5f5343;
+.home-card-item span:last-child {
+  color: #615345;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.home-card-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 30px rgba(42, 30, 10, 0.1);
+  border-color: #cdb58d;
+}
+
+.home-card-primary {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.58), transparent 34%),
+    linear-gradient(165deg, #fff6e6, #ead1a6);
 }
 
 .universe-kicker {
@@ -408,45 +443,51 @@ body {
   color: #7b5632;
 }
 
-.universe-card-sudoku {
-  background: linear-gradient(165deg, #eef8ea, #d5ecce);
-  border-color: #b8d5b1;
+.home-card-item::after {
+  content: "";
+  position: absolute;
+  inset: auto 14px 14px auto;
+  width: 92px;
+  height: 92px;
+  opacity: 0.16;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 10px 10px rgba(0, 0, 0, 0.04));
 }
 
-.universe-card-ttt {
-  background: linear-gradient(165deg, #e8f4fb, #cde6f6);
-  border-color: #a8c9de;
+.home-card-chess::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%232d2115' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M28 82h44'/%3E%3Cpath d='M36 78c3-9 10-15 10-25 0-4-2-8-5-11 6-2 11-7 11-13 0-6-4-11-10-12 1 5-2 10-7 12-4 1-7 5-7 9 0 5 3 9 7 11-8 5-13 13-13 24h14z'/%3E%3Cpath d='M43 45h20l-3 12H40z'/%3E%3Cpath d='M49 20l9 8'/%3E%3C/svg%3E");
 }
 
-.universe-card-connect4 {
-  background: linear-gradient(165deg, #fff2d8, #ffd9ad);
-  border-color: #e5b777;
+.home-card-sudoku::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%232d2115' stroke-width='2.5' stroke-linecap='round'%3E%3Crect x='18' y='18' width='64' height='64' rx='8'/%3E%3Cpath d='M40 18v64M60 18v64M18 40h64M18 60h64'/%3E%3C/svg%3E");
 }
 
-.universe-card-othello {
-  background: linear-gradient(165deg, #ebf3e3, #cfe3bc);
-  border-color: #9eb985;
+.home-card-ttt::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%232d2115' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='18' y='18' width='64' height='64' rx='10'/%3E%3Cpath d='M39 39l22 22M61 39L39 61'/%3E%3C/svg%3E");
 }
 
-.universe-card-minesweeper {
-  background: linear-gradient(165deg, #f0eadf, #d8cbb4);
-  border-color: #b8a78a;
+.home-card-connect4::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%232d2115' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='24' y='16' width='42' height='68' rx='8'/%3E%3Ccircle cx='38' cy='32' r='5'/%3E%3Ccircle cx='52' cy='32' r='5'/%3E%3Ccircle cx='38' cy='48' r='5'/%3E%3Ccircle cx='52' cy='48' r='5'/%3E%3Ccircle cx='38' cy='64' r='5'/%3E%3Ccircle cx='52' cy='64' r='5'/%3E%3C/svg%3E");
 }
 
-.universe-card-2048 {
-  background: linear-gradient(165deg, #22283e, #4b335f 58%, #d28b44);
-  border-color: rgba(255, 224, 190, 0.35);
-  color: #fff8ee;
+.home-card-othello::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%232d2115' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='50' cy='50' r='26'/%3E%3Ccircle cx='50' cy='50' r='14'/%3E%3Cpath d='M50 12v12M50 76v12M12 50h12M76 50h12'/%3E%3C/svg%3E");
 }
 
-.universe-card-2048 span,
-.universe-card-2048 .universe-kicker {
-  color: rgba(255, 244, 232, 0.82);
+.home-card-minesweeper::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%232d2115' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='50' cy='50' r='18'/%3E%3Cpath d='M50 24v-8M50 84v-8M24 50h-8M84 50h-8M31 31l-6-6M75 75l-6-6M31 69l-6 6M75 25l-6 6'/%3E%3C/svg%3E");
 }
 
-.universe-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 24px rgba(42, 30, 10, 0.16);
+.home-card-2048::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%232d2115' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='18' y='18' width='24' height='24' rx='6'/%3E%3Crect x='42' y='18' width='24' height='24' rx='6'/%3E%3Crect x='18' y='42' width='24' height='24' rx='6'/%3E%3Crect x='42' y='42' width='24' height='24' rx='6'/%3E%3Cpath d='M69 31h14M76 24v14M69 68h14M76 61v14'/%3E%3C/svg%3E");
+}
+
+.home-card-item > * {
+  position: relative;
+  z-index: 1;
 }
 
 .game-2048-page {
@@ -2430,13 +2471,22 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .game-universe-grid {
-    grid-template-columns: 1fr;
-  }
-
   .home-stage {
     min-height: 64vh;
     border-radius: 20px;
+  }
+
+  .home-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-card-item {
+    min-height: 144px;
   }
 
   .auth-controls {

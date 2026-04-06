@@ -46,55 +46,49 @@ export default function HomePage({
         ["--tilt-y" as string]: `${tilt.y}px`,
       }}
     >
-      <div className="chess-floaters" aria-hidden="true">
-        <span className="piece p1">♘</span>
-        <span className="piece p2">♛</span>
-        <span className="piece p3">♞</span>
-        <span className="piece p4">♜</span>
-        <span className="piece p5">♝</span>
-        <span className="piece p6">♔</span>
+      <div className="home-hero">
+        <div className="home-hero-copy">
+          <h2>Pick a mode.</h2>
+          <p className="home-summary">All games in one place. Start with the one you want.</p>
+        </div>
       </div>
 
-      <div className="setup-card mode-card home-card">
-        <h2>Choose Your Universe</h2>
-        <p>Enter Chess Command or Sudoku Arena.</p>
-        <div className="game-universe-grid">
-          <button className="universe-card" onClick={onPlayChess}>
+      <div className="home-grid">
+          <button className="home-card-item home-card-primary home-card-chess" onClick={onPlayChess}>
             <span className="universe-kicker">Strategy</span>
             <strong>Chess</strong>
-            <span>Play against the engine with time controls and analysis history.</span>
+            <span>Engine play, clock, and history.</span>
           </button>
-          <button className="universe-card universe-card-sudoku" onClick={onPlaySudoku}>
+          <button className="home-card-item home-card-sudoku" onClick={onPlaySudoku}>
             <span className="universe-kicker">Logic</span>
             <strong>Sudoku</strong>
-            <span>Solve generated puzzles with timer and mistakes tracking.</span>
+            <span>Generate a fresh puzzle.</span>
           </button>
-          <button className="universe-card universe-card-ttt" onClick={onPlayTicTacToe}>
+          <button className="home-card-item home-card-ttt" onClick={onPlayTicTacToe}>
             <span className="universe-kicker">Arcade</span>
             <strong>Tic Tac Toe</strong>
-            <span>Challenge the AI and track wins, losses, and draw streaks.</span>
+            <span>Quick AI matches.</span>
           </button>
-          <button className="universe-card universe-card-connect4" onClick={onPlayConnectFour}>
+          <button className="home-card-item home-card-connect4" onClick={onPlayConnectFour}>
             <span className="universe-kicker">Duel</span>
             <strong>Connect 4</strong>
-            <span>Local two-player mode. Drop discs and connect four to win.</span>
+            <span>Drop discs and connect four.</span>
           </button>
-          <button className="universe-card universe-card-othello" onClick={onPlayOthello}>
+          <button className="home-card-item home-card-othello" onClick={onPlayOthello}>
             <span className="universe-kicker">Tactics</span>
             <strong>Othello</strong>
-            <span>Play local or versus smart AI with legal-move guidance and post-game history.</span>
+            <span>Local or AI play.</span>
           </button>
-          <button className="universe-card universe-card-minesweeper" onClick={onPlayMinesweeper}>
+          <button className="home-card-item home-card-minesweeper" onClick={onPlayMinesweeper}>
             <span className="universe-kicker">Puzzle</span>
             <strong>Minesweeper</strong>
-            <span>Clear the board while avoiding hidden mines. Multiple difficulty levels.</span>
+            <span>Clear the board safely.</span>
           </button>
-          <button className="universe-card universe-card-2048" onClick={onPlay2048}>
+          <button className="home-card-item home-card-2048" onClick={onPlay2048}>
             <span className="universe-kicker">Puzzle</span>
             <strong>2048</strong>
-            <span>Slide, merge, and build the highest tile you can before the board locks up.</span>
+            <span>Merge tiles and push your score higher.</span>
           </button>
-        </div>
       </div>
     </section>
   );

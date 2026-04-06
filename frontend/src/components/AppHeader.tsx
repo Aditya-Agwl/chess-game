@@ -27,8 +27,7 @@ export default function AppHeader({
     <header className="topbar">
       <div className="top-left">
         <div>
-          <h1>The Royal Gambit</h1>
-          <p>Play. Review. Improve.</p>
+          <h1>The Boardroom</h1>
         </div>
       </div>
 
