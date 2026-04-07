@@ -1,5 +1,6 @@
 import os
 import re
+import asyncio
 from datetime import datetime, timedelta, timezone
 import random
 from typing import Literal
@@ -8,7 +9,7 @@ import chess
 import chess.engine
 import jwt
 from bson import ObjectId
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.transport import requests as google_requests
@@ -16,6 +17,14 @@ from google.oauth2 import id_token as google_id_token
 from pymongo import ASCENDING, DESCENDING, MongoClient
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from backend.tictactoe.tictactoe_routes import build_tictactoe_handlers
+
+if os.name == "nt":
+    # python-chess launches Stockfish via asyncio subprocess; Proactor loop is required on Windows.
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        pass
 
 load_dotenv()
 
@@ -55,13 +64,77 @@ mongo_client = None
 mongo_db = None
 users_collection = None
 games_collection = None
+tictactoe_invites_collection = None
+tictactoe_matches_collection = None
 auth_scheme = HTTPBearer(auto_error=False)
+
+
+class RealtimeHub:
+    def __init__(self):
+        self.user_connections: dict[str, set[WebSocket]] = {}
+        self.socket_user: dict[WebSocket, str] = {}
+        self.room_connections: dict[str, set[WebSocket]] = {}
+        self.socket_rooms: dict[WebSocket, set[str]] = {}
+
+    async def connect(self, user_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.user_connections.setdefault(user_id, set()).add(websocket)
+        self.socket_user[websocket] = user_id
+        self.socket_rooms[websocket] = set()
+
+    def disconnect(self, websocket: WebSocket):
+        user_id = self.socket_user.pop(websocket, None)
+        if user_id is not None:
+            sockets = self.user_connections.get(user_id, set())
+            sockets.discard(websocket)
+            if not sockets:
+                self.user_connections.pop(user_id, None)
+
+        joined_rooms = self.socket_rooms.pop(websocket, set())
+        for room in joined_rooms:
+            sockets = self.room_connections.get(room, set())
+            sockets.discard(websocket)
+            if not sockets:
+                self.room_connections.pop(room, None)
+
+    def join_room(self, websocket: WebSocket, room: str):
+        self.room_connections.setdefault(room, set()).add(websocket)
+        self.socket_rooms.setdefault(websocket, set()).add(room)
+
+    def leave_room(self, websocket: WebSocket, room: str):
+        sockets = self.room_connections.get(room, set())
+        sockets.discard(websocket)
+        if not sockets:
+            self.room_connections.pop(room, None)
+
+        joined_rooms = self.socket_rooms.get(websocket, set())
+        joined_rooms.discard(room)
+
+    async def send_to_socket(self, websocket: WebSocket, event: str, payload: dict):
+        try:
+            await websocket.send_json({"event": event, "payload": payload})
+        except Exception:
+            self.disconnect(websocket)
+
+    async def send_user(self, user_id: str, event: str, payload: dict):
+        sockets = list(self.user_connections.get(user_id, set()))
+        for socket in sockets:
+            await self.send_to_socket(socket, event, payload)
+
+    async def send_room(self, room: str, event: str, payload: dict):
+        sockets = list(self.room_connections.get(room, set()))
+        for socket in sockets:
+            await self.send_to_socket(socket, event, payload)
+
+
+realtime_hub = RealtimeHub()
 
 DifficultyLevel = Literal["easy", "medium", "hard"]
 PlayerColor = Literal["white", "black"]
 GameResult = Literal["win", "loss", "draw", "aborted"]
 TimeControl = Literal["3+2", "5+0", "10+0", "10+3", "15+10"]
 GameType = Literal["chess", "sudoku", "tictactoe", "connect4", "othello", "minesweeper", "2048"]
+TicTacToeMode = Literal["local", "ai", "friend"]
 TicTacToeMark = Literal["X", "O"]
 Connect4Disc = Literal["R", "Y"]
 OthelloDisc = Literal["B", "W"]
@@ -148,6 +221,8 @@ class SaveGameRequest(BaseModel):
     tictactoe_winner: str | None = None
     tictactoe_move_history: list[str] = Field(default_factory=list)
     tictactoe_elapsed_seconds: int | None = None
+    tictactoe_mode: TicTacToeMode | None = None
+    tictactoe_board_size: int | None = Field(default=None, ge=3, le=8)
     connect4_board: str | None = None
     connect4_player_disc: Connect4Disc | None = None
     connect4_winner: DiscWinner | None = None
@@ -182,12 +257,6 @@ class SudokuCreateResponse(BaseModel):
     puzzle: str
     solution: str
     difficulty: DifficultyLevel
-
-
-class TicTacToeBestMoveRequest(BaseModel):
-    board: str
-    difficulty: DifficultyLevel = "medium"
-    ai_mark: TicTacToeMark = "O"
 
 
 class Connect4BestMoveRequest(BaseModel):
@@ -315,6 +384,8 @@ def serialize_game(doc: dict) -> dict:
         "tictactoe_board": doc.get("tictactoe_board"),
         "tictactoe_player_mark": doc.get("tictactoe_player_mark"),
         "tictactoe_winner": doc.get("tictactoe_winner"),
+        "tictactoe_mode": doc.get("tictactoe_mode"),
+        "tictactoe_board_size": doc.get("tictactoe_board_size"),
         "tictactoe_move_history": doc.get("tictactoe_move_history", []),
         "tictactoe_elapsed_seconds": doc.get("tictactoe_elapsed_seconds"),
         "connect4_board": doc.get("connect4_board"),
@@ -343,6 +414,42 @@ def serialize_game(doc: dict) -> dict:
         "finished_at": doc.get("finished_at"),
         "created_at": doc.get("created_at"),
     }
+
+
+def ttt_match_room(match_id: ObjectId | str) -> str:
+    return f"ttt:match:{str(match_id)}"
+
+
+async def publish_ttt_invite_event(invite_doc: dict, event: str):
+    from_user_id = str(invite_doc.get("from_user_id"))
+    to_user_id = str(invite_doc.get("to_user_id"))
+
+    await realtime_hub.send_user(from_user_id, event, {
+        "invite_id": str(invite_doc.get("_id")),
+        "status": invite_doc.get("status"),
+    })
+    await realtime_hub.send_user(to_user_id, event, {
+        "invite_id": str(invite_doc.get("_id")),
+        "status": invite_doc.get("status"),
+    })
+
+
+async def publish_ttt_match_event(match_doc: dict):
+    room = ttt_match_room(match_doc.get("_id"))
+    payload = {
+        "match_id": str(match_doc.get("_id")),
+        "status": match_doc.get("status"),
+        "winner": match_doc.get("winner"),
+        "board": match_doc.get("board"),
+        "current_turn": match_doc.get("current_turn"),
+        "updated_at": match_doc.get("updated_at"),
+    }
+    await realtime_hub.send_room(room, "ttt.match.updated", payload)
+
+    inviter_id = str(match_doc.get("inviter_id"))
+    invitee_id = str(match_doc.get("invitee_id"))
+    await realtime_hub.send_user(inviter_id, "ttt.match.updated", payload)
+    await realtime_hub.send_user(invitee_id, "ttt.match.updated", payload)
 
 
 def _chunk_to_grid(values: list[int]) -> list[list[int]]:
@@ -384,97 +491,6 @@ def generate_sudoku(difficulty: DifficultyLevel) -> tuple[str, str]:
     puzzle = _grid_to_string(_chunk_to_grid(puzzle_values))
     solution = _grid_to_string(solved)
     return puzzle, solution
-
-
-def ttt_winner(board: list[str]) -> str | None:
-    lines = [
-        (0, 1, 2), (3, 4, 5), (6, 7, 8),
-        (0, 3, 6), (1, 4, 7), (2, 5, 8),
-        (0, 4, 8), (2, 4, 6),
-    ]
-    for a, b, c in lines:
-        if board[a] != "-" and board[a] == board[b] == board[c]:
-            return board[a]
-    return None
-
-
-def ttt_available(board: list[str]) -> list[int]:
-    return [idx for idx, value in enumerate(board) if value == "-"]
-
-
-def ttt_minimax(board: list[str], ai_mark: str, human_mark: str, maximizing: bool) -> tuple[int, int | None]:
-    winner = ttt_winner(board)
-    if winner == ai_mark:
-        return 10, None
-    if winner == human_mark:
-        return -10, None
-
-    available = ttt_available(board)
-    if not available:
-        return 0, None
-
-    if maximizing:
-        best_score = -999
-        best_move = available[0]
-        for idx in available:
-            board[idx] = ai_mark
-            score, _ = ttt_minimax(board, ai_mark, human_mark, False)
-            board[idx] = "-"
-            if score > best_score:
-                best_score = score
-                best_move = idx
-        return best_score, best_move
-
-    best_score = 999
-    best_move = available[0]
-    for idx in available:
-        board[idx] = human_mark
-        score, _ = ttt_minimax(board, ai_mark, human_mark, True)
-        board[idx] = "-"
-        if score < best_score:
-            best_score = score
-            best_move = idx
-    return best_score, best_move
-
-
-def pick_tictactoe_move(board: str, difficulty: DifficultyLevel, ai_mark: str) -> int:
-    cells = list(board)
-    if len(cells) != 9 or any(ch not in {"X", "O", "-"} for ch in cells):
-        raise HTTPException(status_code=400, detail="Invalid board")
-
-    if ttt_winner(cells) is not None:
-        raise HTTPException(status_code=400, detail="Game is already finished")
-
-    available = ttt_available(cells)
-    if not available:
-        raise HTTPException(status_code=400, detail="Board is full")
-
-    human_mark = "O" if ai_mark == "X" else "X"
-
-    if difficulty == "easy":
-        return random.choice(available)
-
-    if difficulty == "medium":
-        for idx in available:
-            cells[idx] = ai_mark
-            if ttt_winner(cells) == ai_mark:
-                cells[idx] = "-"
-                return idx
-            cells[idx] = "-"
-
-        for idx in available:
-            cells[idx] = human_mark
-            if ttt_winner(cells) == human_mark:
-                cells[idx] = "-"
-                return idx
-            cells[idx] = "-"
-
-        return random.choice(available)
-
-    _, move = ttt_minimax(cells, ai_mark, human_mark, True)
-    if move is None:
-        return random.choice(available)
-    return move
 
 
 def connect4_board_from_string(board_str: str) -> list[list[str]]:
@@ -931,6 +947,33 @@ def create_app_token(user_id: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
+def get_user_from_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid auth token")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+
+    if users_collection is None:
+        raise HTTPException(status_code=500, detail="Database is not configured")
+
+    try:
+        object_id = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+
+    user = users_collection.find_one({"_id": object_id})
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return normalize_social_fields(user)
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(auth_scheme),
 ) -> dict:
@@ -938,35 +981,38 @@ def get_current_user(
         print("ERROR: No credentials provided")
         raise HTTPException(status_code=401, detail="Missing auth token")
 
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user_id = payload.get("sub")
-        if not user_id:
-            print("ERROR: No 'sub' in JWT payload")
-            raise HTTPException(status_code=401, detail="Invalid auth token")
-    except jwt.InvalidTokenError as e:
-        print(f"ERROR: JWT decode failed: {e}")
-        raise HTTPException(status_code=401, detail="Invalid auth token")
-    except Exception as e:
-        print(f"ERROR: Unexpected error in JWT decode: {e}")
-        raise HTTPException(status_code=401, detail="Invalid auth token")
+    return get_user_from_token(credentials.credentials)
 
-    if users_collection is None:
-        print("ERROR: Database not configured")
-        raise HTTPException(status_code=500, detail="Database is not configured")
 
-    try:
-        object_id = ObjectId(user_id)
-    except Exception as e:
-        print(f"ERROR: Failed to create ObjectId from user_id '{user_id}': {e}")
-        raise HTTPException(status_code=401, detail="Invalid auth token")
+def _get_users_collection():
+    return users_collection
 
-    user = users_collection.find_one({"_id": object_id})
-    if user is None:
-        print(f"ERROR: User not found for ObjectId {object_id}")
-        raise HTTPException(status_code=401, detail="User not found")
-    return normalize_social_fields(user)
+
+def _get_games_collection():
+    return games_collection
+
+
+def _get_ttt_invites_collection():
+    return tictactoe_invites_collection
+
+
+def _get_ttt_matches_collection():
+    return tictactoe_matches_collection
+
+
+ttt_handlers = build_tictactoe_handlers({
+    "get_current_user": get_current_user,
+    "parse_object_id": parse_object_id,
+    "serialize_user_summary": serialize_user_summary,
+    "get_users_collection": _get_users_collection,
+    "get_games_collection": _get_games_collection,
+    "get_invites_collection": _get_ttt_invites_collection,
+    "get_matches_collection": _get_ttt_matches_collection,
+    "publish_invite_event": publish_ttt_invite_event,
+    "publish_match_event": publish_ttt_match_event,
+})
+ttt_handlers["register"](app)
+ttt_play_friend_move_internal = ttt_handlers["play_friend_move_internal"]
 
 
 def configure_engine_for_difficulty(level: DifficultyLevel):
@@ -980,21 +1026,33 @@ def configure_engine_for_difficulty(level: DifficultyLevel):
 @app.on_event("startup")
 def startup():
     global engine, mongo_client, mongo_db, users_collection, games_collection
+    global tictactoe_invites_collection, tictactoe_matches_collection
 
     if not os.path.exists(STOCKFISH_PATH):
-        raise RuntimeError(f"Stockfish not found at: {STOCKFISH_PATH}")
-    engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+        print(f"Warning: Stockfish not found at: {STOCKFISH_PATH}; chess engine endpoints will be unavailable.")
+        engine = None
+    else:
+        try:
+            engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+        except Exception as exc:
+            print(f"Warning: Could not start Stockfish engine ({exc}); chess engine endpoints will be unavailable.")
+            engine = None
 
     if MONGODB_URI:
         mongo_client = MongoClient(MONGODB_URI)
         mongo_db = mongo_client[MONGODB_DB_NAME]
         users_collection = mongo_db["users"]
         games_collection = mongo_db["games"]
+        tictactoe_invites_collection = mongo_db["tictactoe_invites"]
+        tictactoe_matches_collection = mongo_db["tictactoe_friend_matches"]
         users_collection.create_index([("google_sub", ASCENDING)], unique=True)
         users_collection.create_index([("email", ASCENDING)], unique=True)
         users_collection.create_index([("name", ASCENDING)])
         games_collection.create_index([("user_id", ASCENDING), ("finished_at", DESCENDING)])
         games_collection.create_index([("user_id", ASCENDING), ("game_type", ASCENDING), ("finished_at", DESCENDING)])
+        tictactoe_invites_collection.create_index([("from_user_id", ASCENDING), ("to_user_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
+        tictactoe_invites_collection.create_index([("to_user_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
+        tictactoe_matches_collection.create_index([("player_user_ids", ASCENDING), ("status", ASCENDING), ("updated_at", DESCENDING)])
     else:
         print("Warning: MONGODB_URI is not set; auth and game history endpoints will not work.")
 
@@ -1300,6 +1358,89 @@ def unfriend_user(friend_user_id: str, user: dict = Depends(get_current_user)):
     return {"status": "unfriended", "detail": "Friend removed"}
 
 
+@app.websocket("/ws/realtime")
+async def realtime_socket(websocket: WebSocket, token: str = Query(default="")):
+    if not token:
+        await websocket.close(code=1008, reason="Missing auth token")
+        return
+
+    try:
+        user = get_user_from_token(token)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Invalid auth token")
+        return
+
+    user_id = str(user["_id"])
+    await realtime_hub.connect(user_id, websocket)
+    await realtime_hub.send_to_socket(websocket, "realtime.connected", {"user_id": user_id})
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            message_type = message.get("type")
+
+            if message_type == "ping":
+                await realtime_hub.send_to_socket(websocket, "realtime.pong", {"ts": datetime.now(timezone.utc).isoformat()})
+                continue
+
+            if message_type == "subscribe_match":
+                raw_match_id = str(message.get("match_id", "")).strip()
+                if not raw_match_id:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "match_id is required"})
+                    continue
+
+                try:
+                    match_object_id = parse_object_id(raw_match_id, field_name="match_id")
+                except HTTPException:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "Invalid match_id"})
+                    continue
+
+                match_doc = tictactoe_matches_collection.find_one({"_id": match_object_id}) if tictactoe_matches_collection is not None else None
+                if match_doc is None or user["_id"] not in set(match_doc.get("player_user_ids", [])):
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "Match not found or access denied"})
+                    continue
+
+                room = ttt_match_room(raw_match_id)
+                realtime_hub.join_room(websocket, room)
+                await realtime_hub.send_to_socket(websocket, "realtime.subscribed", {"room": room})
+                await realtime_hub.send_to_socket(websocket, "ttt.match.updated", {
+                    "match_id": str(match_doc.get("_id")),
+                    "status": match_doc.get("status"),
+                    "winner": match_doc.get("winner"),
+                    "board": match_doc.get("board"),
+                    "current_turn": match_doc.get("current_turn"),
+                    "updated_at": match_doc.get("updated_at"),
+                })
+                continue
+
+            if message_type == "unsubscribe_match":
+                raw_match_id = str(message.get("match_id", "")).strip()
+                if raw_match_id:
+                    realtime_hub.leave_room(websocket, ttt_match_room(raw_match_id))
+                continue
+
+            if message_type == "ttt_friend_move":
+                raw_match_id = str(message.get("match_id", "")).strip()
+                try:
+                    index = int(message.get("index"))
+                except Exception:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "Invalid move index"})
+                    continue
+
+                try:
+                    _, updated = ttt_play_friend_move_internal(raw_match_id, index, user)
+                    await publish_ttt_match_event(updated)
+                except HTTPException as exc:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": exc.detail})
+                continue
+
+            await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "Unknown message type"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        realtime_hub.disconnect(websocket)
+
+
 @app.post("/games")
 def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
     if games_collection is None:
@@ -1320,6 +1461,18 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="tictactoe_board is required for tictactoe games")
         if req.tictactoe_player_mark is None:
             raise HTTPException(status_code=400, detail="tictactoe_player_mark is required for tictactoe games")
+        if req.tictactoe_mode is None:
+            req.tictactoe_mode = "ai"
+
+        board_cells = len(req.tictactoe_board)
+        inferred_size = int(board_cells ** 0.5)
+        if inferred_size * inferred_size != board_cells:
+            raise HTTPException(status_code=400, detail="tictactoe_board must form a square board")
+
+        if req.tictactoe_board_size is None:
+            req.tictactoe_board_size = inferred_size
+        if req.tictactoe_board_size * req.tictactoe_board_size != board_cells:
+            raise HTTPException(status_code=400, detail="tictactoe_board_size does not match tictactoe_board")
     if req.game_type == "connect4":
         if req.connect4_board is None:
             raise HTTPException(status_code=400, detail="connect4_board is required for connect4 games")
@@ -1384,6 +1537,8 @@ def save_game(req: SaveGameRequest, user: dict = Depends(get_current_user)):
             "tictactoe_winner": req.tictactoe_winner,
             "tictactoe_move_history": req.tictactoe_move_history,
             "tictactoe_elapsed_seconds": req.tictactoe_elapsed_seconds,
+            "tictactoe_mode": req.tictactoe_mode,
+            "tictactoe_board_size": req.tictactoe_board_size,
         })
     elif req.game_type == "connect4":
         payload.update({
@@ -1446,15 +1601,6 @@ def create_sudoku(req: SudokuCreateRequest):
     )
 
 
-@app.post("/tictactoe/best-move")
-def tictactoe_best_move(req: TicTacToeBestMoveRequest):
-    ai_index = pick_tictactoe_move(req.board, req.difficulty, req.ai_mark)
-    return {
-        "index": ai_index,
-        "difficulty": req.difficulty,
-    }
-
-
 @app.post("/connect4/best-move")
 def connect4_best_move(req: Connect4BestMoveRequest):
     ai_column = pick_connect4_move(req.board, req.difficulty, req.ai_disc)
@@ -1486,6 +1632,9 @@ def minesweeper_new(req: MinesweeperCreateRequest):
 
 @app.post("/best-move")
 def best_move(req: BestMoveRequest):
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Chess engine is unavailable on this server")
+
     try:
         board = chess.Board(req.fen)
     except Exception:

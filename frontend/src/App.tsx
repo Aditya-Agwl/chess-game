@@ -22,6 +22,8 @@ import SudokuPage from "./components/pages/SudokuPage";
 import TicTacToePage from "./components/pages/TicTacToePage";
 import UsersPage from "./components/pages/UsersPage";
 import FriendsPage from "./components/pages/FriendsPage";
+import NotificationsPage from "./components/pages/NotificationsPage";
+import { ensureTicTacToeRealtime, fetchTicTacToeFriendInvites, subscribeTicTacToeRealtime } from "./api/tictactoe";
 import type {
   AuthUser,
   DifficultyLevel,
@@ -128,6 +130,7 @@ function AppInner() {
   const [friendsOverview, setFriendsOverview] = useState<SocialOverview | null>(null);
   const [actionLoadingById, setActionLoadingById] = useState<Record<string, FriendActionType | undefined>>({});
   const [pendingUnfriendUser, setPendingUnfriendUser] = useState<SocialUser | null>(null);
+  const [tttInviteCount, setTttInviteCount] = useState(0);
 
   const [gamesLoading, setGamesLoading] = useState(false);
   const [gamesError, setGamesError] = useState("");
@@ -601,6 +604,25 @@ function AppInner() {
     navigate("/friends");
   }
 
+  function openNotificationsPage() {
+    setShowUserMenu(false);
+    navigate("/notifications");
+  }
+
+  async function refreshTicTacToeInviteCount() {
+    if (!authToken) {
+      setTttInviteCount(0);
+      return;
+    }
+
+    try {
+      const data = await fetchTicTacToeFriendInvites(API_BASE, authToken);
+      setTttInviteCount(data.incoming_count ?? 0);
+    } catch {
+      // Keep header responsive even if notifications endpoint fails.
+    }
+  }
+
   async function saveGameIfNeeded(g: Chess, forcedResult?: GameResult, historyOverride?: string[]) {
     if (!authToken || !difficulty || !playerColor || gameSaved) return;
 
@@ -697,6 +719,7 @@ function AppInner() {
     setUsersSearchText("");
     setActionLoadingById({});
     setPendingUnfriendUser(null);
+    setTttInviteCount(0);
     setSocialError("");
     setSelectedGameId("");
     setGamesError("");
@@ -1134,6 +1157,33 @@ function AppInner() {
   }, [location.pathname, authToken]);
 
   useEffect(() => {
+    if (!authToken) {
+      setTttInviteCount(0);
+      return;
+    }
+
+    ensureTicTacToeRealtime(API_BASE, authToken);
+    void refreshTicTacToeInviteCount();
+    const id = window.setInterval(() => {
+      void refreshTicTacToeInviteCount();
+    }, 15000);
+
+    return () => window.clearInterval(id);
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) return;
+
+    const unsubscribe = subscribeTicTacToeRealtime((message) => {
+      if (message.event === "ttt.invite.created" || message.event === "ttt.invite.updated") {
+        void refreshTicTacToeInviteCount();
+      }
+    });
+
+    return unsubscribe;
+  }, [authToken]);
+
+  useEffect(() => {
     setShowUserMenu(false);
   }, [location.pathname]);
 
@@ -1149,6 +1199,8 @@ function AppInner() {
           onGoProfile={openProfilePage}
           onGoUsers={openUsersPage}
           onGoFriends={openFriendsPage}
+          onGoNotifications={openNotificationsPage}
+          notificationCount={tttInviteCount}
           onGoHome={() => navigate("/")}
           onGoHistory={openRecentGamesPage}
           onLogout={handleLogout}
@@ -1161,7 +1213,7 @@ function AppInner() {
               <HomePage
                 onPlayChess={() => navigate("/chess")}
                 onPlaySudoku={() => navigate("/sudoku")}
-                onPlayTicTacToe={() => navigate("/tictactoe")}
+                onPlayTicTacToe={() => navigate("/tictactoe/settings")}
                 onPlayConnectFour={() => navigate("/connect4")}
                 onPlayOthello={() => navigate("/othello/settings/mode")}
                 onPlayMinesweeper={() => navigate("/minesweeper/settings")}
@@ -1223,6 +1275,28 @@ function AppInner() {
           />
 
           <Route
+            path="/notifications"
+            element={(
+              <NotificationsPage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onIncomingCountChange={setTttInviteCount}
+                onStartMatch={(matchId) => {
+                  navigate("/tictactoe/play", {
+                    state: {
+                      mode: "friend",
+                      difficulty: "medium",
+                      playerMark: "X",
+                      boardSize: 3,
+                      matchId,
+                    },
+                  });
+                }}
+              />
+            )}
+          />
+
+          <Route
             path="/history"
             element={(
               <HistoryPage
@@ -1263,13 +1337,33 @@ function AppInner() {
           />
 
           <Route
-            path="/tictactoe"
+            path="/tictactoe/settings"
             element={(
               <TicTacToePage
                 authToken={authToken}
                 apiBase={API_BASE}
                 onOpenHistory={openRecentGamesPage}
+                routeMode="settings"
               />
+            )}
+          />
+
+          <Route
+            path="/tictactoe/play"
+            element={(
+              <TicTacToePage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="play"
+              />
+            )}
+          />
+
+          <Route
+            path="/tictactoe"
+            element={(
+              <Navigate to="/tictactoe/settings" replace />
             )}
           />
 
@@ -1454,15 +1548,17 @@ function AppInner() {
           {location.pathname === "/"
             ? "Pick Chess, Sudoku, Tic Tac Toe, Connect 4, Othello, or Minesweeper to jump into your game universe."
             : location.pathname === "/profile"
-              ? "This is your player profile. Use it to track your friend network before play-a-friend arrives."
+              ? "This is your player profile. Track your friend network and launch friend matches from notifications."
             : location.pathname === "/users"
               ? "Search players, send friend requests, and accept incoming invites."
             : location.pathname === "/friends"
               ? "Manage accepted friends and pending requests from one place."
+            : location.pathname === "/notifications"
+              ? "Review Tic Tac Toe friend invites, accept requests, and jump into active matches."
             : location.pathname === "/sudoku"
               ? "Use the number pad to fill cells. Every completed puzzle is stored in your history."
-              : location.pathname === "/tictactoe"
-                ? "Play as X. Click any empty tile to make a move against the AI."
+              : location.pathname.startsWith("/tictactoe")
+                ? "Pick Local, AI, or Friend mode in settings, then start your Tic-Tac-Toe match."
                 : location.pathname === "/connect4"
                   ? "Take turns dropping discs. First to connect four horizontally, vertically, or diagonally wins."
                   : location.pathname === "/minesweeper"

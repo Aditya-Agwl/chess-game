@@ -64,6 +64,8 @@ export type SavedGame = {
   tictactoe_winner?: "X" | "O" | "draw";
   tictactoe_move_history?: string[];
   tictactoe_elapsed_seconds?: number;
+  tictactoe_mode?: "local" | "ai" | "friend";
+  tictactoe_board_size?: number;
   connect4_board?: string;
   connect4_player_disc?: "R" | "Y";
   connect4_winner?: "R" | "Y" | "draw";

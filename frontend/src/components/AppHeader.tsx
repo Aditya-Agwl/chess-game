@@ -7,6 +7,8 @@ type Props = {
   onGoProfile: () => void;
   onGoUsers: () => void;
   onGoFriends: () => void;
+  onGoNotifications: () => void;
+  notificationCount: number;
   onGoHome: () => void;
   onGoHistory: () => void;
   onLogout: () => void;
@@ -19,6 +21,8 @@ export default function AppHeader({
   onGoProfile,
   onGoUsers,
   onGoFriends,
+  onGoNotifications,
+  notificationCount,
   onGoHome,
   onGoHistory,
   onLogout,
@@ -55,6 +59,10 @@ export default function AppHeader({
                 <button className="user-menu-item" onClick={onGoProfile}>My Profile</button>
                 <button className="user-menu-item" onClick={onGoUsers}>Find Users</button>
                 <button className="user-menu-item" onClick={onGoFriends}>Friends & Requests</button>
+                <button className="user-menu-item user-menu-item-notification" onClick={onGoNotifications}>
+                  <span>Notifications</span>
+                  {notificationCount > 0 && <span className="menu-badge">{notificationCount}</span>}
+                </button>
                 <button className="user-menu-item" onClick={onGoHome}>Home</button>
                 <button className="user-menu-item" onClick={onGoHistory}>Analyze Games</button>
                 <button className="btn btn-light" onClick={onLogout}>Sign Out</button>

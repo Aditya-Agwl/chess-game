@@ -168,6 +168,23 @@ body {
   font: 600 0.86rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
 }
 
+.user-menu-item-notification {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.menu-badge {
+  min-width: 22px;
+  border-radius: 999px;
+  background: #8a3b2f;
+  color: #fff9f1;
+  font: 700 0.72rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+  padding: 5px 7px;
+  text-align: center;
+}
+
 .user-menu-item:hover {
   background: #f8e6c5;
 }
@@ -906,6 +923,34 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+
+.ttt-mode-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ttt-settings-card {
+  width: min(960px, 100%);
+  margin-inline: auto;
+}
+
+.ttt-friend-box {
+  margin-top: 10px;
+  border: 1px solid #e2d0b0;
+  border-radius: 14px;
+  background: linear-gradient(165deg, #fff9f0, #f8efdf);
+  padding: 14px;
+}
+
+.ttt-friend-select {
+  width: 100%;
+  border: 1px solid #d9c7aa;
+  border-radius: 10px;
+  background: #fffdf7;
+  color: #2f2518;
+  padding: 10px;
+  font: 500 0.92rem/1 "Space Grotesk", "Trebuchet MS", sans-serif;
+}
+
 .othello-mode-card {
   border: 1px solid #d7c2a1;
   border-radius: 16px;
@@ -917,6 +962,11 @@ body {
   gap: 8px;
   cursor: pointer;
   transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.othello-mode-card.is-selected {
+  border-color: #a8742a;
+  box-shadow: 0 0 0 3px rgba(168, 116, 42, 0.24), 0 14px 24px rgba(42, 30, 10, 0.16);
 }
 .othello-mode-card strong {
   font-size: 1.04rem;
@@ -2453,6 +2503,10 @@ body {
   }
 
   .othello-mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ttt-mode-grid {
     grid-template-columns: 1fr;
   }
   .othello-settings-actions {
