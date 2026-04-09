@@ -1214,7 +1214,7 @@ function AppInner() {
                 onPlayChess={() => navigate("/chess")}
                 onPlaySudoku={() => navigate("/sudoku")}
                 onPlayTicTacToe={() => navigate("/tictactoe/settings")}
-                onPlayConnectFour={() => navigate("/connect4")}
+                onPlayConnectFour={() => navigate("/connect4/settings")}
                 onPlayOthello={() => navigate("/othello/settings/mode")}
                 onPlayMinesweeper={() => navigate("/minesweeper/settings")}
                 onPlay2048={() => navigate("/2048/settings")}
@@ -1281,13 +1281,23 @@ function AppInner() {
                 authToken={authToken}
                 apiBase={API_BASE}
                 onIncomingCountChange={setTttInviteCount}
-                onStartMatch={(matchId) => {
+                onStartTicTacToeMatch={(matchId) => {
                   navigate("/tictactoe/play", {
                     state: {
                       mode: "friend",
                       difficulty: "medium",
                       playerMark: "X",
                       boardSize: 3,
+                      matchId,
+                    },
+                  });
+                }}
+                onStartConnect4Match={(matchId) => {
+                  navigate("/connect4/play", {
+                    state: {
+                      mode: "friend",
+                      difficulty: "medium",
+                      playerDisc: "R",
                       matchId,
                     },
                   });
@@ -1368,13 +1378,33 @@ function AppInner() {
           />
 
           <Route
-            path="/connect4"
+            path="/connect4/settings"
             element={(
               <ConnectFourPage
                 authToken={authToken}
                 apiBase={API_BASE}
                 onOpenHistory={openRecentGamesPage}
+                routeMode="settings"
               />
+            )}
+          />
+
+          <Route
+            path="/connect4/play"
+            element={(
+              <ConnectFourPage
+                authToken={authToken}
+                apiBase={API_BASE}
+                onOpenHistory={openRecentGamesPage}
+                routeMode="play"
+              />
+            )}
+          />
+
+          <Route
+            path="/connect4"
+            element={(
+              <Navigate to="/connect4/settings" replace />
             )}
           />
 
@@ -1554,12 +1584,12 @@ function AppInner() {
             : location.pathname === "/friends"
               ? "Manage accepted friends and pending requests from one place."
             : location.pathname === "/notifications"
-              ? "Review Tic Tac Toe friend invites, accept requests, and jump into active matches."
+              ? "Review Tic Tac Toe and Connect 4 friend invites, accept requests, and jump into active matches."
             : location.pathname === "/sudoku"
               ? "Use the number pad to fill cells. Every completed puzzle is stored in your history."
               : location.pathname.startsWith("/tictactoe")
                 ? "Pick Local, AI, or Friend mode in settings, then start your Tic-Tac-Toe match."
-                : location.pathname === "/connect4"
+                : location.pathname.startsWith("/connect4")
                   ? "Take turns dropping discs. First to connect four horizontally, vertically, or diagonally wins."
                   : location.pathname === "/minesweeper"
                     ? "Left-click to reveal, right-click to flag. Avoid mines and clear the board to win."

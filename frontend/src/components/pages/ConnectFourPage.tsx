@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   CONNECT4_COLS,
   CONNECT4_ROWS,
@@ -9,15 +10,34 @@ import {
   type Connect4Disc,
   type Connect4Winner,
 } from "../../utils/connect4";
-import type { DifficultyLevel, GameResult } from "../../types";
+import {
+  ensureConnect4Realtime,
+  fetchConnect4BestMove,
+  fetchConnect4FriendMatch,
+  fetchFriendsForConnect4Invite,
+  playConnect4FriendMove,
+  saveConnect4Game,
+  sendConnect4FriendInvite,
+  sendConnect4RealtimeMessage,
+  subscribeConnect4Realtime,
+  type Connect4FriendMatch,
+  type Connect4Mode,
+} from "../../api/connect4";
+import type { DifficultyLevel, GameResult, SocialUser } from "../../types";
 
 type Props = {
   authToken: string;
   apiBase: string;
   onOpenHistory: () => void;
+  routeMode: "settings" | "play";
 };
 
-type GameMode = "setup" | "local" | "ai";
+type Connect4RouteState = {
+  mode: Connect4Mode;
+  difficulty: DifficultyLevel;
+  playerDisc: Connect4Disc;
+  matchId?: string;
+};
 
 function labelForDisc(disc: Connect4Disc): string {
   return disc === "R" ? "Red" : "Yellow";
@@ -33,12 +53,38 @@ function boardToString(board: (Connect4Disc | "")[][]): string {
   return board.flat().map(cell => cell === "" ? "-" : cell).join("");
 }
 
-export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: Props) {
-  const [gameMode, setGameMode] = useState<GameMode>("setup");
+function boardFromString(board: string): (Connect4Disc | "")[][] {
+  if (board.length !== CONNECT4_ROWS * CONNECT4_COLS) {
+    return createConnect4Board();
+  }
+
+  const cells = board.split("").map((cell) => (cell === "-" ? "" : (cell as Connect4Disc)));
+  const rows: (Connect4Disc | "")[][] = [];
+  for (let row = 0; row < CONNECT4_ROWS; row += 1) {
+    rows.push(cells.slice(row * CONNECT4_COLS, (row + 1) * CONNECT4_COLS));
+  }
+  return rows;
+}
+
+export default function ConnectFourPage({ authToken, apiBase, onOpenHistory, routeMode }: Props) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [selectedMode, setSelectedMode] = useState<Connect4Mode>("ai");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>("medium");
+  const [selectedPlayerDisc, setSelectedPlayerDisc] = useState<Connect4Disc>("R");
+
+  const [friendCandidates, setFriendCandidates] = useState<SocialUser[]>([]);
+  const [selectedFriendId, setSelectedFriendId] = useState("");
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState("");
+
+  const [gameMode, setGameMode] = useState<Connect4Mode>("ai");
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
   const [playerDisc, setPlayerDisc] = useState<Connect4Disc>("R");
+  const [friendMatchId, setFriendMatchId] = useState<string | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
-  
+
   const [board, setBoard] = useState(createConnect4Board);
   const [currentPlayer, setCurrentPlayer] = useState<Connect4Disc>("R");
   const [winner, setWinner] = useState<Connect4Winner>(null);
@@ -55,21 +101,69 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
 
   const gameOver = winner !== null;
   const isAiGame = gameMode === "ai";
+  const isFriendGame = gameMode === "friend";
   const isPlayerTurn = currentPlayer === playerDisc;
   const aiDisc: Connect4Disc = playerDisc === "R" ? "Y" : "R";
+  const canDropDisc = !gameOver && !loadingAi && (isAiGame || isFriendGame ? isPlayerTurn : true);
   
   const status = useMemo(() => {
+    if (!gameStarted) return "Open Connect 4 settings and start a game.";
     if (winner === "draw") return "Draw game. Board is full.";
     if (winner === "R" || winner === "Y") {
       const isPlayerWinner = winner === playerDisc;
+      if (isFriendGame) {
+        return winner === playerDisc ? "You win!" : "Your friend wins.";
+      }
       return isPlayerWinner ? "You win!" : `${labelForDisc(winner)} wins!`;
     }
     if (isAiGame && loadingAi) return "AI is thinking...";
+    if (isFriendGame) {
+      return isPlayerTurn ? "Your turn." : "Waiting for your friend...";
+    }
     return `${labelForDisc(currentPlayer)}'s turn.`;
-  }, [winner, currentPlayer, gameMode, loadingAi, playerDisc]);
+  }, [winner, currentPlayer, gameMode, loadingAi, playerDisc, gameStarted, isFriendGame, isPlayerTurn, isAiGame]);
+
+  function applyFriendMatch(match: Connect4FriendMatch, showModalOnFinish = false) {
+    setGameMode("friend");
+    setGameStarted(true);
+    setDifficulty("medium");
+    setPlayerDisc(match.my_disc);
+    setFriendMatchId(match.id);
+    setBoard(boardFromString(match.board));
+    setCurrentPlayer(match.current_turn);
+    setMoveHistory(match.move_history ?? []);
+    setWinner(match.winner ?? null);
+    setShowResultModal(showModalOnFinish && match.status === "finished");
+    setError("");
+
+    let foundLastMove: { row: number; column: number } | null = null;
+    const boardState = boardFromString(match.board);
+    for (let row = 0; row < CONNECT4_ROWS; row += 1) {
+      for (let column = 0; column < CONNECT4_COLS; column += 1) {
+        if (boardState[row][column] !== "") {
+          foundLastMove = { row, column };
+        }
+      }
+    }
+    setLastMove(foundLastMove);
+
+    if (match.created_at) {
+      setStartedAt(match.created_at);
+    }
+  }
+
+  async function loadFriendMatch(matchId: string, showModalOnFinish = false) {
+    if (!authToken) return;
+    try {
+      const match = await fetchConnect4FriendMatch(apiBase, authToken, matchId);
+      applyFriendMatch(match, showModalOnFinish);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not load friend match");
+    }
+  }
 
   async function saveConnect4IfNeeded(forcedWinner?: Connect4Winner) {
-    if (!authToken || saved) return;
+    if (!authToken || saved || isFriendGame || !gameStarted) return;
 
     setSaving(true);
     try {
@@ -81,30 +175,18 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
         result = resolvedWinner === playerDisc ? "win" : "loss";
       }
 
-      const res = await fetch(apiBase + "/games", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          game_type: "connect4",
-          result,
-          difficulty,
-          connect4_board: boardToString(board),
-          connect4_player_disc: playerDisc,
-          connect4_winner: resolvedWinner ?? undefined,
-          connect4_move_history: moveHistory,
-          connect4_elapsed_seconds: elapsedSeconds,
-          started_at: startedAt,
-          finished_at: new Date().toISOString(),
-        }),
+      await saveConnect4Game(apiBase, authToken, {
+        game_type: "connect4",
+        result,
+        difficulty,
+        connect4_board: boardToString(board),
+        connect4_player_disc: playerDisc,
+        connect4_winner: resolvedWinner ?? undefined,
+        connect4_move_history: moveHistory,
+        connect4_elapsed_seconds: elapsedSeconds,
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
       });
-
-      if (!res.ok) {
-        const data: { detail?: string } = await res.json();
-        throw new Error(data.detail || "Could not save Connect 4 game");
-      }
 
       setSaved(true);
     } catch (e: unknown) {
@@ -114,8 +196,15 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
     }
   }
 
-  function startNewGame() {
-    setBoard(createConnect4Board());
+  function launchGame(config: Connect4RouteState) {
+    const freshBoard = createConnect4Board();
+
+    setGameMode(config.mode);
+    setDifficulty(config.difficulty);
+    setPlayerDisc(config.playerDisc);
+    setFriendMatchId(config.matchId ?? null);
+
+    setBoard(freshBoard);
     setCurrentPlayer("R");
     setWinner(null);
     setMoveHistory([]);
@@ -129,35 +218,95 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
     setStartedAt(new Date().toISOString());
     setGameStarted(true);
 
-    // If AI goes first, request AI move
-    if (isAiGame && playerDisc !== "R") {
-      setLoadingAi(true);
+    if (config.mode === "ai" && config.playerDisc !== "R") {
       window.setTimeout(() => {
-        void requestAiMove(createConnect4Board(), [], "R");
+        void requestAiMove(freshBoard, [], "R", config.difficulty, config.playerDisc);
       }, 0);
     }
   }
 
-  async function requestAiMove(nextBoard: (Connect4Disc | "")[][], history: string[], aiTurn: Connect4Disc) {
+  function startNewGame() {
+    if (isFriendGame && friendMatchId) {
+      void loadFriendMatch(friendMatchId);
+      return;
+    }
+
+    launchGame({
+      mode: gameMode,
+      difficulty,
+      playerDisc,
+      matchId: friendMatchId ?? undefined,
+    });
+  }
+
+  async function endConnect4() {
+    if (gameOver || isFriendGame) return;
+    await saveConnect4IfNeeded();
+  }
+
+  async function sendFriendRequest() {
+    if (!authToken || !selectedFriendId) return;
+
+    setInviteSending(true);
+    setInviteMessage("");
+    setError("");
+    try {
+      const result = await sendConnect4FriendInvite(apiBase, authToken, selectedFriendId);
+      setInviteMessage(result.detail || "Request sent.");
+      navigate("/notifications");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not send game invite");
+    } finally {
+      setInviteSending(false);
+    }
+  }
+
+  async function playFriendColumn(column: number) {
+    if (!authToken || !friendMatchId) return;
+
+    const sent = sendConnect4RealtimeMessage({
+      type: "c4_friend_move",
+      match_id: friendMatchId,
+      column,
+    });
+
+    if (sent) {
+      setLoadingAi(true);
+      window.setTimeout(() => {
+        setLoadingAi(false);
+      }, 2200);
+      return;
+    }
+
     setLoadingAi(true);
     setError("");
     try {
-      const res = await fetch(apiBase + "/connect4/best-move", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          board: boardToString(nextBoard),
-          difficulty,
-          ai_disc: aiTurn,
-        }),
-      });
+      const match = await playConnect4FriendMove(apiBase, authToken, friendMatchId, column);
+      applyFriendMatch(match, true);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not submit move");
+    } finally {
+      setLoadingAi(false);
+    }
+  }
 
-      const data: { column?: number; detail?: string } = await res.json();
-      if (!res.ok || data.column === undefined) {
-        throw new Error(data.detail || "Could not fetch AI move");
-      }
+  async function requestAiMove(
+    nextBoard: (Connect4Disc | "")[][],
+    history: string[],
+    aiTurn: Connect4Disc,
+    currentDifficulty = difficulty,
+    currentPlayerDisc = playerDisc,
+  ) {
+    if (isFriendGame) return;
+
+    setLoadingAi(true);
+    setError("");
+    try {
+      const data = await fetchConnect4BestMove(apiBase, {
+        board: boardToString(nextBoard),
+        difficulty: currentDifficulty,
+        ai_disc: aiTurn,
+      });
 
       const column = data.column;
       const dropped = dropDisc(nextBoard, column, aiTurn);
@@ -188,7 +337,7 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
         return;
       }
 
-      setCurrentPlayer(playerDisc);
+      setCurrentPlayer(currentPlayerDisc);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not fetch AI move");
     } finally {
@@ -198,6 +347,12 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
 
   function playColumn(column: number) {
     if (gameOver || loadingAi) return;
+    if (isFriendGame) {
+      if (!isPlayerTurn) return;
+      void playFriendColumn(column);
+      return;
+    }
+
     if (isAiGame && !isPlayerTurn) return;
 
     const dropped = dropDisc(board, column, currentPlayer);
@@ -233,115 +388,282 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
   }
 
   useEffect(() => {
-    if (!gameStarted || gameOver) return;
-    const id = window.setInterval(() => setElapsedSeconds((prev) => prev + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [gameStarted, gameOver]);
-
-  if (!gameStarted) {
-    // Setup screen: choose mode
-    if (gameMode === "setup") {
-      return (
-        <section className="setup-card">
-          <h2>Connect 4 Arena</h2>
-          <p>Choose your game mode.</p>
-
-          <h3 className="setup-subtitle">Game Mode</h3>
-          <div className="mode-actions">
-            <button
-              className="btn btn-light"
-              onClick={() => {
-                setGameMode("local");
-                setGameStarted(true);
-              }}
-            >
-              Local 2-Player
-            </button>
-            <button
-              className="btn btn-dark"
-              onClick={() => setGameMode("ai")}
-            >
-              Play vs AI
-            </button>
-          </div>
-        </section>
-      );
+    if (routeMode !== "settings" || selectedMode !== "friend" || !authToken) {
+      return;
     }
 
-    // AI mode: let user choose color and difficulty
-    if (gameMode === "ai") {
-      return (
-        <section className="setup-card">
-          <h2>Connect 4 vs AI</h2>
-          <p>Choose your color and difficulty.</p>
+    let cancelled = false;
+    void (async () => {
+      try {
+        const friends = await fetchFriendsForConnect4Invite(apiBase, authToken);
+        if (cancelled) return;
+        setFriendCandidates(friends);
+        setSelectedFriendId((prev) => prev || friends[0]?.id || "");
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not load friends");
+        }
+      }
+    })();
 
-          <h3 className="setup-subtitle">Your Color</h3>
-          <div className="setup-actions">
-            <button
-              className={`btn btn-light ${playerDisc === "R" ? "is-selected" : ""}`}
-              onClick={() => setPlayerDisc("R")}
-            >
-              Red
-            </button>
-            <button
-              className={`btn btn-dark ${playerDisc === "Y" ? "is-selected" : ""}`}
-              onClick={() => setPlayerDisc("Y")}
-            >
-              Yellow
-            </button>
-          </div>
-          <div className="selection-hint">
-            {playerDisc ? `Playing as ${labelForDisc(playerDisc)}` : "Select a color"}
-          </div>
+    return () => {
+      cancelled = true;
+    };
+  }, [routeMode, selectedMode, authToken, apiBase]);
 
-          <h3 className="setup-subtitle">Difficulty</h3>
-          <div className="difficulty-actions">
-            <button
-              className={`btn btn-difficulty ${difficulty === "easy" ? "is-selected" : ""}`}
-              onClick={() => setDifficulty("easy")}
-            >
-              Easy
-            </button>
-            <button
-              className={`btn btn-difficulty ${difficulty === "medium" ? "is-selected" : ""}`}
-              onClick={() => setDifficulty("medium")}
-            >
-              Medium
-            </button>
-            <button
-              className={`btn btn-difficulty ${difficulty === "hard" ? "is-selected" : ""}`}
-              onClick={() => setDifficulty("hard")}
-            >
-              Hard
-            </button>
-          </div>
-          <div className="selection-hint">
-            {difficulty ? `Difficulty: ${difficulty[0].toUpperCase() + difficulty.slice(1)}` : "Select difficulty"}
-          </div>
+  useEffect(() => {
+    if (authToken) {
+      ensureConnect4Realtime(apiBase, authToken);
+    }
 
+    if (!authToken) return;
+
+    return subscribeConnect4Realtime((message) => {
+      if (message.event === "realtime.connected" && friendMatchId) {
+        sendConnect4RealtimeMessage({
+          type: "subscribe_connect4_match",
+          match_id: friendMatchId,
+        });
+      }
+
+      if (message.event === "c4.match.updated") {
+        const payloadMatchId = String(message.payload.match_id ?? "");
+        if (payloadMatchId && friendMatchId && payloadMatchId === friendMatchId) {
+          setLoadingAi(false);
+          void loadFriendMatch(payloadMatchId, true);
+        }
+      }
+    });
+  }, [authToken, apiBase, friendMatchId]);
+
+  useEffect(() => {
+    if (!isFriendGame || !friendMatchId) return;
+
+    sendConnect4RealtimeMessage({
+      type: "subscribe_connect4_match",
+      match_id: friendMatchId,
+    });
+
+    return () => {
+      sendConnect4RealtimeMessage({
+        type: "unsubscribe_connect4_match",
+        match_id: friendMatchId,
+      });
+    };
+  }, [isFriendGame, friendMatchId]);
+
+  useEffect(() => {
+    if (routeMode !== "play") return;
+
+    const state = (location.state as Connect4RouteState | null) ?? null;
+    if (!state) {
+      setError("Open Connect 4 settings first, then start a game.");
+      setGameStarted(false);
+      return;
+    }
+
+    if (state.mode === "friend") {
+      if (!state.matchId) {
+        setError("Open Notifications and accept a friend invite to start playing.");
+        setGameStarted(false);
+        return;
+      }
+      void loadFriendMatch(state.matchId);
+      return;
+    }
+
+    setError("");
+    launchGame(state);
+  }, [routeMode, location.state]);
+
+  useEffect(() => {
+    if (!gameStarted || gameOver || isFriendGame) return;
+    const id = window.setInterval(() => setElapsedSeconds((prev) => prev + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [gameStarted, gameOver, isFriendGame]);
+
+  useEffect(() => {
+    if (!isFriendGame || !friendMatchId || !gameStarted || gameOver || !authToken) return;
+
+    // Slow fallback sync in case websocket is interrupted.
+    const id = window.setInterval(() => {
+      void loadFriendMatch(friendMatchId);
+    }, 12000);
+
+    return () => window.clearInterval(id);
+  }, [isFriendGame, friendMatchId, gameStarted, gameOver, authToken]);
+
+  if (routeMode === "settings") {
+    const canStart =
+      selectedMode === "ai"
+        ? Boolean(selectedDifficulty && selectedPlayerDisc)
+        : selectedMode === "friend"
+          ? false
+          : true;
+
+    return (
+      <section className="setup-card othello-settings-card c4-settings-card">
+        <div className="othello-settings-head">
+          <h2>Connect 4 Setup</h2>
+          <span className="othello-step-pill">Match Builder</span>
+        </div>
+        <p>Pick your mode and options before launching the board.</p>
+
+        <h3 className="setup-subtitle">Game Mode</h3>
+        <div className="othello-mode-grid ttt-mode-grid" role="group" aria-label="Connect 4 mode selection">
+          <button
+            className={`othello-mode-card ${selectedMode === "local" ? "is-selected" : ""}`}
+            onClick={() => {
+              setSelectedMode("local");
+              setError("");
+            }}
+          >
+            <strong>Local 2-Player</strong>
+            <span>Share one board and alternate turns on this device.</span>
+          </button>
+          <button
+            className={`othello-mode-card is-ai ${selectedMode === "ai" ? "is-selected" : ""}`}
+            onClick={() => {
+              setSelectedMode("ai");
+              setError("");
+            }}
+          >
+            <strong>Play vs AI</strong>
+            <span>Practice opening traps and tactical drops against the engine.</span>
+          </button>
+          <button
+            className={`othello-mode-card ${selectedMode === "friend" ? "is-selected" : ""}`}
+            onClick={() => {
+              setSelectedMode("friend");
+              setError("");
+            }}
+          >
+            <strong>Play a Friend</strong>
+            <span>Send an invite and continue your shared match live.</span>
+          </button>
+        </div>
+
+        {selectedMode === "ai" && (
+          <>
+            <h3 className="setup-subtitle">Your Disc</h3>
+            <div className="setup-actions">
+              <button
+                className={`btn btn-light ${selectedPlayerDisc === "R" ? "is-selected" : ""}`}
+                onClick={() => setSelectedPlayerDisc("R")}
+              >
+                Play as Red
+              </button>
+              <button
+                className={`btn btn-dark ${selectedPlayerDisc === "Y" ? "is-selected" : ""}`}
+                onClick={() => setSelectedPlayerDisc("Y")}
+              >
+                Play as Yellow
+              </button>
+            </div>
+
+            <h3 className="setup-subtitle">Difficulty</h3>
+            <div className="difficulty-actions">
+              {(["easy", "medium", "hard"] as const).map((option) => (
+                <button
+                  key={option}
+                  className={`btn btn-difficulty ${selectedDifficulty === option ? "is-selected" : ""}`}
+                  onClick={() => setSelectedDifficulty(option)}
+                >
+                  {option[0].toUpperCase() + option.slice(1)}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {selectedMode === "friend" && (
+          <div className="ttt-friend-box c4-friend-box">
+            <h3 className="setup-subtitle">Choose Friend</h3>
+            <select
+              value={selectedFriendId}
+              onChange={(e) => setSelectedFriendId(e.target.value)}
+              className="ttt-friend-select"
+            >
+              {friendCandidates.length === 0 ? (
+                <option value="">No friends available</option>
+              ) : (
+                friendCandidates.map((friend) => (
+                  <option key={friend.id} value={friend.id}>{friend.name}</option>
+                ))
+              )}
+            </select>
+
+            <div className="sudoku-actions">
+              <button
+                className="btn btn-dark"
+                onClick={() => void sendFriendRequest()}
+                disabled={!selectedFriendId || inviteSending || friendCandidates.length === 0}
+              >
+                {inviteSending ? "Sending Request..." : "Send Play Request"}
+              </button>
+              <button className="btn btn-light" onClick={() => navigate("/notifications")}>Open Notifications</button>
+            </div>
+
+            {inviteMessage && <div className="selection-hint">{inviteMessage}</div>}
+          </div>
+        )}
+
+        <div className="sudoku-actions othello-settings-actions">
+          <button className="btn btn-light" onClick={() => navigate("/")}>Back to Home</button>
           <button
             className="btn btn-start"
+            disabled={!canStart}
             onClick={() => {
-              startNewGame();
+              navigate("/connect4/play", {
+                state: {
+                  mode: selectedMode,
+                  difficulty: selectedDifficulty,
+                  playerDisc: selectedPlayerDisc,
+                } satisfies Connect4RouteState,
+              });
             }}
           >
             Start Game
           </button>
-        </section>
-      );
-    }
+        </div>
+
+        {error && <div className="error-box">{error}</div>}
+      </section>
+    );
+  }
+
+  if (!gameStarted) {
+    return (
+      <section className="setup-card">
+        <h2>Connect 4</h2>
+        <p>{error || "Open settings to configure your game first."}</p>
+        <div className="sudoku-actions">
+          <button className="btn btn-start" onClick={() => navigate("/connect4/settings")}>Open Settings</button>
+          <button className="btn btn-light" onClick={() => navigate("/notifications")}>Open Notifications</button>
+        </div>
+      </section>
+    );
   }
 
 
   return (
-    <section className="connect4-page setup-card">
+    <section className="connect4-page setup-card c4-play-card">
       <div className="sudoku-header">
         <h2>Connect 4 Arena</h2>
-        <p>{isAiGame ? `Playing vs AI (${difficulty})` : "Local 2-player mode"}. Drop discs and connect four to win.</p>
+        <p>
+          {isAiGame
+            ? `Playing vs AI (${difficulty})`
+            : isFriendGame
+              ? "Playing with a friend"
+              : "Local 2-player mode"}
+          . Drop discs and connect four to win.
+        </p>
       </div>
 
       <div className="sudoku-stats">
-        <span>Mode: <strong>{isAiGame ? "vs AI" : "Local"}</strong></span>
+        <span>Mode: <strong>{isAiGame ? "vs AI" : isFriendGame ? "Friend Match" : "Local"}</strong></span>
+        <span>You: <strong>{labelForDisc(playerDisc)}</strong></span>
+        <span>{isAiGame ? "AI" : "Opponent"}: <strong>{labelForDisc(aiDisc)}</strong></span>
         <span>Status: <strong>{gameOver ? "Finished" : "In Progress"}</strong></span>
         <span>Turn: <strong>{gameOver ? "-" : labelForDisc(currentPlayer)}</strong></span>
         <span>Timer: <strong>{formatElapsed(elapsedSeconds)}</strong></span>
@@ -356,10 +678,10 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
               className="connect4-drop-btn"
               type="button"
               onClick={() => playColumn(column)}
-              disabled={gameOver || loadingAi || (isAiGame && !isPlayerTurn)}
+              disabled={!canDropDisc}
               aria-label={`Drop in column ${column + 1}`}
             >
-              Drop {column + 1}
+              {column + 1}
             </button>
           ))}
         </div>
@@ -382,7 +704,7 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
                   className={classes}
                   type="button"
                   onClick={() => playColumn(column)}
-                  disabled={gameOver || loadingAi || (isAiGame && !isPlayerTurn)}
+                  disabled={!canDropDisc}
                   aria-label={`Row ${row + 1} Column ${column + 1}`}
                 >
                   <span className="connect4-disc" />
@@ -394,9 +716,17 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
       </div>
 
       <div className="sudoku-actions">
-        <button className="btn btn-start" onClick={startNewGame} disabled={loadingAi || saving}>
+        {!isFriendGame && <button className="btn btn-start" onClick={startNewGame} disabled={loadingAi || saving}>
           New Game
-        </button>
+        </button>}
+        {!isFriendGame && <button className="btn btn-reset" onClick={() => void endConnect4()} disabled={loadingAi || saving || gameOver}>
+          End Game
+        </button>}
+        {isFriendGame && friendMatchId && (
+          <button className="btn btn-dark" onClick={() => void loadFriendMatch(friendMatchId)} disabled={loadingAi}>Refresh Match</button>
+        )}
+        <button className="btn btn-light" onClick={() => navigate("/connect4/settings")}>Change Settings</button>
+        <button className="btn btn-light" onClick={() => navigate("/notifications")}>Notifications</button>
         <button className="btn btn-dark" onClick={onOpenHistory}>
           View Previous Games
         </button>
@@ -432,9 +762,9 @@ export default function ConnectFourPage({ authToken, apiBase, onOpenHistory }: P
                 : `${labelForDisc(winner as Connect4Disc)} connected 4 in ${moveHistory.length} moves and ${formatElapsed(elapsedSeconds)}.`}
             </p>
             <div className="modal-actions">
-              <button className="btn btn-start" onClick={startNewGame}>
-                Play Again
-              </button>
+              {!isFriendGame && <button className="btn btn-start" onClick={startNewGame}>Play Again</button>}
+              {isFriendGame && <button className="btn btn-light" onClick={() => setShowResultModal(false)}>Close</button>}
+              <button className="btn btn-light" onClick={() => navigate("/connect4/settings")}>Change Settings</button>
               <button className="btn btn-dark" onClick={onOpenHistory}>
                 View History
               </button>

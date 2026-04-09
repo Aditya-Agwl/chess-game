@@ -18,6 +18,7 @@ from pymongo import ASCENDING, DESCENDING, MongoClient
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from backend.tictactoe.tictactoe_routes import build_tictactoe_handlers
+from backend.connect4.connect4_routes import build_connect4_handlers
 
 if os.name == "nt":
     # python-chess launches Stockfish via asyncio subprocess; Proactor loop is required on Windows.
@@ -66,6 +67,8 @@ users_collection = None
 games_collection = None
 tictactoe_invites_collection = None
 tictactoe_matches_collection = None
+connect4_invites_collection = None
+connect4_matches_collection = None
 auth_scheme = HTTPBearer(auto_error=False)
 
 
@@ -259,12 +262,6 @@ class SudokuCreateResponse(BaseModel):
     difficulty: DifficultyLevel
 
 
-class Connect4BestMoveRequest(BaseModel):
-    board: str
-    difficulty: DifficultyLevel = "medium"
-    ai_disc: Connect4Disc = "Y"
-
-
 class OthelloBestMoveRequest(BaseModel):
     board: str
     difficulty: DifficultyLevel = "medium"
@@ -452,6 +449,38 @@ async def publish_ttt_match_event(match_doc: dict):
     await realtime_hub.send_user(invitee_id, "ttt.match.updated", payload)
 
 
+async def publish_c4_invite_event(invite_doc: dict, event: str):
+    from_user_id = str(invite_doc.get("from_user_id"))
+    to_user_id = str(invite_doc.get("to_user_id"))
+
+    await realtime_hub.send_user(from_user_id, event, {
+        "invite_id": str(invite_doc.get("_id")),
+        "status": invite_doc.get("status"),
+    })
+    await realtime_hub.send_user(to_user_id, event, {
+        "invite_id": str(invite_doc.get("_id")),
+        "status": invite_doc.get("status"),
+    })
+
+
+async def publish_c4_match_event(match_doc: dict):
+    room = c4_match_room(match_doc.get("_id"))
+    payload = {
+        "match_id": str(match_doc.get("_id")),
+        "status": match_doc.get("status"),
+        "winner": match_doc.get("winner"),
+        "board": match_doc.get("board"),
+        "current_turn": match_doc.get("current_turn"),
+        "updated_at": match_doc.get("updated_at"),
+    }
+    await realtime_hub.send_room(room, "c4.match.updated", payload)
+
+    inviter_id = str(match_doc.get("inviter_id"))
+    invitee_id = str(match_doc.get("invitee_id"))
+    await realtime_hub.send_user(inviter_id, "c4.match.updated", payload)
+    await realtime_hub.send_user(invitee_id, "c4.match.updated", payload)
+
+
 def _chunk_to_grid(values: list[int]) -> list[list[int]]:
     return [values[i:i + 9] for i in range(0, 81, 9)]
 
@@ -491,145 +520,6 @@ def generate_sudoku(difficulty: DifficultyLevel) -> tuple[str, str]:
     puzzle = _grid_to_string(_chunk_to_grid(puzzle_values))
     solution = _grid_to_string(solved)
     return puzzle, solution
-
-
-def connect4_board_from_string(board_str: str) -> list[list[str]]:
-    """Converts a 42-char string (6x7 board) to a 2D grid."""
-    if len(board_str) != 42:
-        raise HTTPException(status_code=400, detail="Invalid board: must be 42 characters")
-    cells = list(board_str)
-    if any(ch not in {"R", "Y", "-"} for ch in cells):
-        raise HTTPException(status_code=400, detail="Invalid board: must contain only R, Y, or -")
-    return [cells[i:i + 7] for i in range(0, 42, 7)]
-
-
-def connect4_board_to_string(board: list[list[str]]) -> str:
-    """Converts a 2D 6x7 grid back to a 42-char string."""
-    return "".join("".join(row) for row in board)
-
-
-def connect4_winner(board: list[list[str]]) -> str | None:
-    """Check if there's a winner (R, Y, or None)."""
-    ROWS, COLS = 6, 7
-    
-    for row in range(ROWS):
-        for col in range(COLS):
-            if board[row][col] == "-":
-                continue
-            disc = board[row][col]
-            # Horizontal
-            if col + 3 < COLS and all(board[row][col + i] == disc for i in range(4)):
-                return disc
-            # Vertical
-            if row + 3 < ROWS and all(board[row + i][col] == disc for i in range(4)):
-                return disc
-            # Diagonal /
-            if row + 3 < ROWS and col + 3 < COLS and all(board[row + i][col + i] == disc for i in range(4)):
-                return disc
-            # Diagonal \
-            if row + 3 < ROWS and col - 3 >= 0 and all(board[row + i][col - i] == disc for i in range(4)):
-                return disc
-    return None
-
-
-def connect4_available_columns(board: list[list[str]]) -> list[int]:
-    """Returns list of columns where a disc can be dropped."""
-    return [col for col in range(7) if board[0][col] == "-"]
-
-
-def connect4_drop_disc(board: list[list[str]], column: int, disc: str) -> list[list[str]] | None:
-    """Drop a disc in a column. Returns new board or None if column is full."""
-    if column < 0 or column >= 7:
-        return None
-    for row in range(5, -1, -1):
-        if board[row][column] == "-":
-            new_board = [list(row_data) for row_data in board]
-            new_board[row][column] = disc
-            return new_board
-    return None
-
-
-def connect4_minimax(
-    board: list[list[str]],
-    ai_disc: str,
-    human_disc: str,
-    depth: int,
-    maximizing: bool,
-) -> tuple[int, int | None]:
-    """Minimax with depth limit for Connect 4."""
-    winner = connect4_winner(board)
-    if winner == ai_disc:
-        return 10 + depth, None
-    if winner == human_disc:
-        return -10 - depth, None
-
-    available = connect4_available_columns(board)
-    if not available:
-        return 0, None
-
-    if depth <= 0:
-        return 0, None
-
-    if maximizing:
-        best_score = -999
-        best_move = available[0]
-        for col in available:
-            next_board = connect4_drop_disc(board, col, ai_disc)
-            if next_board is None:
-                continue
-            score, _ = connect4_minimax(next_board, ai_disc, human_disc, depth - 1, False)
-            if score > best_score:
-                best_score = score
-                best_move = col
-        return best_score, best_move
-
-    best_score = 999
-    best_move = available[0]
-    for col in available:
-        next_board = connect4_drop_disc(board, col, human_disc)
-        if next_board is None:
-            continue
-        score, _ = connect4_minimax(next_board, ai_disc, human_disc, depth - 1, True)
-        if score < best_score:
-            best_score = score
-            best_move = col
-    return best_score, best_move
-
-
-def pick_connect4_move(board_str: str, difficulty: DifficultyLevel, ai_disc: str) -> int:
-    """Pick the best Connect 4 move based on difficulty."""
-    board = connect4_board_from_string(board_str)
-    
-    if connect4_winner(board) is not None:
-        raise HTTPException(status_code=400, detail="Game is already finished")
-
-    available = connect4_available_columns(board)
-    if not available:
-        raise HTTPException(status_code=400, detail="Board is full")
-
-    human_disc = "Y" if ai_disc == "R" else "R"
-
-    if difficulty == "easy":
-        return random.choice(available)
-
-    if difficulty == "medium":
-        # Check if AI can win
-        for col in available:
-            next_board = connect4_drop_disc(board, col, ai_disc)
-            if next_board and connect4_winner(next_board) == ai_disc:
-                return col
-
-        # Check if human can win (block)
-        for col in available:
-            next_board = connect4_drop_disc(board, col, human_disc)
-            if next_board and connect4_winner(next_board) == human_disc:
-                return col
-
-        return random.choice(available)
-
-    # Hard: minimax with depth 6
-    _, move = connect4_minimax(board, ai_disc, human_disc, 6, True)
-    return move if move is not None else random.choice(available)
 
 
 def othello_board_from_string(board_str: str) -> list[list[str]]:
@@ -1000,6 +890,14 @@ def _get_ttt_matches_collection():
     return tictactoe_matches_collection
 
 
+def _get_c4_invites_collection():
+    return connect4_invites_collection
+
+
+def _get_c4_matches_collection():
+    return connect4_matches_collection
+
+
 ttt_handlers = build_tictactoe_handlers({
     "get_current_user": get_current_user,
     "parse_object_id": parse_object_id,
@@ -1014,6 +912,21 @@ ttt_handlers = build_tictactoe_handlers({
 ttt_handlers["register"](app)
 ttt_play_friend_move_internal = ttt_handlers["play_friend_move_internal"]
 
+c4_handlers = build_connect4_handlers({
+    "get_current_user": get_current_user,
+    "parse_object_id": parse_object_id,
+    "serialize_user_summary": serialize_user_summary,
+    "get_users_collection": _get_users_collection,
+    "get_games_collection": _get_games_collection,
+    "get_invites_collection": _get_c4_invites_collection,
+    "get_matches_collection": _get_c4_matches_collection,
+    "publish_invite_event": publish_c4_invite_event,
+    "publish_match_event": publish_c4_match_event,
+})
+c4_handlers["register"](app)
+c4_match_room = c4_handlers["match_room"]
+c4_play_friend_move_internal = c4_handlers["play_friend_move_internal"]
+
 
 def configure_engine_for_difficulty(level: DifficultyLevel):
     profile = DIFFICULTY_PROFILES[level]
@@ -1027,6 +940,7 @@ def configure_engine_for_difficulty(level: DifficultyLevel):
 def startup():
     global engine, mongo_client, mongo_db, users_collection, games_collection
     global tictactoe_invites_collection, tictactoe_matches_collection
+    global connect4_invites_collection, connect4_matches_collection
 
     if not os.path.exists(STOCKFISH_PATH):
         print(f"Warning: Stockfish not found at: {STOCKFISH_PATH}; chess engine endpoints will be unavailable.")
@@ -1045,6 +959,8 @@ def startup():
         games_collection = mongo_db["games"]
         tictactoe_invites_collection = mongo_db["tictactoe_invites"]
         tictactoe_matches_collection = mongo_db["tictactoe_friend_matches"]
+        connect4_invites_collection = mongo_db["connect4_invites"]
+        connect4_matches_collection = mongo_db["connect4_friend_matches"]
         users_collection.create_index([("google_sub", ASCENDING)], unique=True)
         users_collection.create_index([("email", ASCENDING)], unique=True)
         users_collection.create_index([("name", ASCENDING)])
@@ -1053,6 +969,9 @@ def startup():
         tictactoe_invites_collection.create_index([("from_user_id", ASCENDING), ("to_user_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
         tictactoe_invites_collection.create_index([("to_user_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
         tictactoe_matches_collection.create_index([("player_user_ids", ASCENDING), ("status", ASCENDING), ("updated_at", DESCENDING)])
+        connect4_invites_collection.create_index([("from_user_id", ASCENDING), ("to_user_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
+        connect4_invites_collection.create_index([("to_user_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
+        connect4_matches_collection.create_index([("player_user_ids", ASCENDING), ("status", ASCENDING), ("updated_at", DESCENDING)])
     else:
         print("Warning: MONGODB_URI is not set; auth and game history endpoints will not work.")
 
@@ -1419,6 +1338,42 @@ async def realtime_socket(websocket: WebSocket, token: str = Query(default="")):
                     realtime_hub.leave_room(websocket, ttt_match_room(raw_match_id))
                 continue
 
+            if message_type == "subscribe_connect4_match":
+                raw_match_id = str(message.get("match_id", "")).strip()
+                if not raw_match_id:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "match_id is required"})
+                    continue
+
+                try:
+                    match_object_id = parse_object_id(raw_match_id, field_name="match_id")
+                except HTTPException:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "Invalid match_id"})
+                    continue
+
+                match_doc = connect4_matches_collection.find_one({"_id": match_object_id}) if connect4_matches_collection is not None else None
+                if match_doc is None or user["_id"] not in set(match_doc.get("player_user_ids", [])):
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "Match not found or access denied"})
+                    continue
+
+                room = c4_match_room(raw_match_id)
+                realtime_hub.join_room(websocket, room)
+                await realtime_hub.send_to_socket(websocket, "realtime.subscribed", {"room": room})
+                await realtime_hub.send_to_socket(websocket, "c4.match.updated", {
+                    "match_id": str(match_doc.get("_id")),
+                    "status": match_doc.get("status"),
+                    "winner": match_doc.get("winner"),
+                    "board": match_doc.get("board"),
+                    "current_turn": match_doc.get("current_turn"),
+                    "updated_at": match_doc.get("updated_at"),
+                })
+                continue
+
+            if message_type == "unsubscribe_connect4_match":
+                raw_match_id = str(message.get("match_id", "")).strip()
+                if raw_match_id:
+                    realtime_hub.leave_room(websocket, c4_match_room(raw_match_id))
+                continue
+
             if message_type == "ttt_friend_move":
                 raw_match_id = str(message.get("match_id", "")).strip()
                 try:
@@ -1430,6 +1385,21 @@ async def realtime_socket(websocket: WebSocket, token: str = Query(default="")):
                 try:
                     _, updated = ttt_play_friend_move_internal(raw_match_id, index, user)
                     await publish_ttt_match_event(updated)
+                except HTTPException as exc:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": exc.detail})
+                continue
+
+            if message_type == "c4_friend_move":
+                raw_match_id = str(message.get("match_id", "")).strip()
+                try:
+                    column = int(message.get("column"))
+                except Exception:
+                    await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": "Invalid move column"})
+                    continue
+
+                try:
+                    _, updated = c4_play_friend_move_internal(raw_match_id, column, user)
+                    await publish_c4_match_event(updated)
                 except HTTPException as exc:
                     await realtime_hub.send_to_socket(websocket, "realtime.error", {"detail": exc.detail})
                 continue
@@ -1599,15 +1569,6 @@ def create_sudoku(req: SudokuCreateRequest):
         solution=solution,
         difficulty=req.difficulty,
     )
-
-
-@app.post("/connect4/best-move")
-def connect4_best_move(req: Connect4BestMoveRequest):
-    ai_column = pick_connect4_move(req.board, req.difficulty, req.ai_disc)
-    return {
-        "column": ai_column,
-        "difficulty": req.difficulty,
-    }
 
 
 @app.post("/othello/best-move")
